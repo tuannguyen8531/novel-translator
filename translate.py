@@ -43,7 +43,7 @@ def print_banner():
     print(f"""
 {CYAN}╔══════════════════════════════════════════════════════╗
 ║         📚  Novel Translator  📚                     ║
-║    Trung / Hàn / Nhật → Tiếng Việt                   ║
+║    Chinese / Korean / Japanese → Vietnamese          ║
 ╚══════════════════════════════════════════════════════╝{RESET}
 {DIM}Provider: {config.llm_provider} · Model: {_get_model_name()} · Temp: {config.translation_temperature}{RESET}
 """)

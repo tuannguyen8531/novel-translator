@@ -14,10 +14,6 @@ import time
 import warnings
 from pathlib import Path
 
-# Suppress LangChain internal deprecation warnings (not actionable by us)
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="langgraph")
-warnings.filterwarnings("ignore", message=".*LangChainPendingDeprecationWarning.*")
-
 from src.config import config
 from src.graph.builder import build_graph
 from src.models.state import initial_state
@@ -39,7 +35,7 @@ def print_banner():
     print(f"""
 {CYAN}╔══════════════════════════════════════════════════════╗
 ║         📚  Novel Translator  📚                     ║
-║    Trung / Hàn / Nhật → Tiếng Việt                   ║
+║    Chinese / Korean / Japanese → Vietnamese          ║
 ╚══════════════════════════════════════════════════════╝{RESET}
 {DIM}Provider: {config.llm_provider} · Model: {_get_model_name()} · Temp: {config.translation_temperature}{RESET}
 """)
