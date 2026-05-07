@@ -1,0 +1,68 @@
+"""
+Context Node — Load translation rules, glossary, and previous chapter summaries.
+
+Loads rules in order:
+1. rules/common.md (shared rules for all languages)
+2. rules/{language}.md (language-specific rules)
+
+For chapter summaries, only loads the last 3 chapters for conciseness.
+"""
+
+from pathlib import Path
+
+from src.models.state import TranslationState
+from src.services.glossary import load_glossary, load_chapter_summaries_recent
+
+
+RULES_DIR = Path("rules")
+MAX_RECENT_SUMMARIES = 3  # Only keep context from last 3 chapters
+
+
+def context_node(state: TranslationState) -> dict:
+    """Load all context needed for translation."""
+    language = state["source_language"]
+    novel_name = state["novel_name"]
+    chapter_number = state["chapter_number"]
+
+    # 1. Load translation rules (common + language-specific)
+    rules_parts = []
+
+    common_rules_file = RULES_DIR / "common.md"
+    if common_rules_file.exists():
+        rules_parts.append(common_rules_file.read_text(encoding="utf-8"))
+        print(f"  📜 Loaded rules: common.md")
+
+    lang_rules_file = RULES_DIR / f"{language}.md"
+    if lang_rules_file.exists():
+        rules_parts.append(lang_rules_file.read_text(encoding="utf-8"))
+        print(f"  📜 Loaded rules: {language}.md")
+    else:
+        print(f"  ⚠️  No language-specific rules: {lang_rules_file}")
+
+    rules = "\n\n".join(rules_parts)
+    if rules:
+        print(f"  📜 Total rules: {len(rules)} chars")
+
+    # 2. Load glossary
+    glossary = load_glossary(novel_name)
+    if glossary:
+        print(f"  📖 Loaded glossary: {len(glossary)} terms")
+    else:
+        print(f"  📖 No existing glossary for '{novel_name}'")
+
+    # 3. Load recent chapter summaries (last 3 chapters)
+    previous_summary = ""
+    if chapter_number > 1:
+        recent_summaries = load_chapter_summaries_recent(
+            novel_name, chapter_number, max_count=MAX_RECENT_SUMMARIES
+        )
+        if recent_summaries:
+            previous_summary = recent_summaries
+            count = previous_summary.count("Chapter ")
+            print(f"  📋 Loaded {count or 'recent'} chapter summaries for context")
+
+    return {
+        "translation_rules": rules,
+        "glossary": glossary,
+        "previous_summary": previous_summary,
+    }
