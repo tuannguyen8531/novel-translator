@@ -12,6 +12,8 @@ from src.services.glossary import (
     save_chapter_summary,
     load_chapter_summaries_recent,
     format_glossary_for_prompt,
+    load_source_language,
+    save_source_language,
     GLOSSARY_DIR,
 )
 
@@ -87,3 +89,17 @@ class TestGlossary:
 
     def test_format_empty_glossary(self):
         assert format_glossary_for_prompt({}) == ""
+
+    def test_save_and_load_source_language(self):
+        save_source_language("test-novel", "chinese")
+        result = load_source_language("test-novel")
+        assert result == "chinese"
+
+    def test_load_source_language_nonexistent(self):
+        result = load_source_language("nonexistent")
+        assert result == ""
+
+    def test_save_empty_language_skips(self):
+        save_source_language("test-novel", "")
+        result = load_source_language("test-novel")
+        assert result == ""

@@ -13,8 +13,9 @@ __pycache__/
 logs/
 !logs/translation_api.log
 output/
-input/
 glossary/
+input/*
+!input/.gitkeep
 
 # OS
 .DS_Store

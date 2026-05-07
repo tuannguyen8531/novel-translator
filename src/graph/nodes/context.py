@@ -11,7 +11,7 @@ For chapter summaries, only loads the last 3 chapters for conciseness.
 from pathlib import Path
 
 from src.models.state import TranslationState
-from src.services.glossary import load_glossary, load_chapter_summaries_recent
+from src.services.glossary import load_glossary, load_chapter_summaries_recent, load_source_language
 
 
 RULES_DIR = Path("rules")
@@ -23,6 +23,12 @@ def context_node(state: TranslationState) -> dict:
     language = state["source_language"]
     novel_name = state["novel_name"]
     chapter_number = state["chapter_number"]
+
+    # 0. Load source language from glossary if not specified by user
+    if not language:
+        language = load_source_language(novel_name)
+        if language:
+            print(f"  🌐 Loaded source language from glossary: {language}")
 
     # 1. Load translation rules (common + language-specific)
     rules_parts = []
@@ -62,6 +68,7 @@ def context_node(state: TranslationState) -> dict:
             print(f"  📋 Loaded {count or 'recent'} chapter summaries for context")
 
     return {
+        "source_language": language,
         "translation_rules": rules,
         "glossary": glossary,
         "previous_summary": previous_summary,

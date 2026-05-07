@@ -88,6 +88,24 @@ def load_glossary(novel_name: str) -> dict[str, str]:
     return data.get("terms", {})
 
 
+def load_source_language(novel_name: str) -> str:
+    """Load detected source language for a novel. Returns empty string if not found."""
+    path = _glossary_path(novel_name)
+    data = _read_json_locked(path)
+    return data.get("source_language", "")
+
+
+def save_source_language(novel_name: str, language: str):
+    """Save detected source language for a novel (thread-safe)."""
+    if not language:
+        return
+    path = _glossary_path(novel_name)
+    _merge_json_locked(path, lambda data: {
+        **data,
+        "source_language": language,
+    })
+
+
 def save_glossary(novel_name: str, terms: dict[str, str]):
     """Save/merge terms into the novel's glossary (thread-safe)."""
     path = _glossary_path(novel_name)

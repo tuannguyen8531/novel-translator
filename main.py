@@ -2,12 +2,13 @@
 Novel Translator — CLI Entry Point
 
 Usage:
-    uv run python main.py --input input/chapter1.txt --novel "my-novel" --chapter 1
-    uv run python main.py --input input/chapter1.txt --novel "my-novel" --chapter 1 --lang chinese
-    uv run python main.py --input input/chapter1.txt --novel "my-novel" --chapter 1 --provider gemini
+    uv run python main.py -i input/my-novel/chapter_1.txt
+    uv run python main.py -i input/my-novel/chapter_1.txt --lang chinese
+    uv run python main.py -i input/my-novel/chapter_1.txt --provider gemini
 """
 
 import argparse
+import re
 import sys
 import time
 import warnings
@@ -99,14 +100,33 @@ def check_provider():
         return False
 
 
+def parse_input_path(input_path: str) -> tuple[str, str, int]:
+    """Parse novel name and chapter number from file path.
+
+    Expected format: input/{novel}/chapter_{number}.txt
+    Returns: (full_path, novel_name, chapter_number)
+    """
+    path = Path(input_path)
+    if not path.exists():
+        print(f"{RED}✗ Input file not found: {input_path}{RESET}")
+        sys.exit(1)
+
+    # Match pattern: .../{novel}/chapter_{number}.txt
+    match = re.search(r"([^/\\]+)[/\\]chapter_(\d+)\.txt$", str(path))
+    if not match:
+        print(f"{RED}✗ Invalid file format. Expected: input/{{novel}}/chapter_{{number}}.txt{RESET}")
+        print(f"  Got: {input_path}{RESET}")
+        sys.exit(1)
+
+    novel_name = match.group(1)
+    chapter_number = int(match.group(2))
+    return str(path), novel_name, chapter_number
+
+
 def translate_file(input_path: str, novel_name: str, chapter_number: int, language: str = ""):
     """Run the translation pipeline on a file."""
     # Read input
     input_file = Path(input_path)
-    if not input_file.exists():
-        print(f"{RED}✗ Input file not found: {input_path}{RESET}")
-        sys.exit(1)
-
     source_text = input_file.read_text(encoding="utf-8")
     if not source_text.strip():
         print(f"{RED}✗ Input file is empty: {input_path}{RESET}")
@@ -165,14 +185,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  uv run python main.py -i input/chapter1.txt -n "my-novel" -c 1
-  uv run python main.py -i input/chapter1.txt -n "my-novel" -c 1 -l chinese
-  uv run python main.py -i input/chapter1.txt -n "my-novel" -c 1 -p gemini
+  uv run python main.py -i input/my-novel/chapter_1.txt
+  uv run python main.py -i input/my-novel/chapter_1.txt --lang chinese
+  uv run python main.py -i input/my-novel/chapter_1.txt --provider gemini
         """,
     )
-    parser.add_argument("-i", "--input", required=True, help="Path to input .txt file")
-    parser.add_argument("-n", "--novel", required=True, help="Novel name (for glossary)")
-    parser.add_argument("-c", "--chapter", type=int, required=True, help="Chapter number")
+    parser.add_argument(
+        "-i", "--input",
+        required=True,
+        help="Path to input file (format: input/{novel}/chapter_{number}.txt)",
+    )
     parser.add_argument(
         "-l", "--lang",
         choices=["chinese", "korean", "japanese"],
@@ -204,6 +226,9 @@ Examples:
 
     args = parser.parse_args()
 
+    # Parse novel name and chapter from file path
+    input_path, novel_name, chapter_number = parse_input_path(args.input)
+
     # Override provider if specified
     if args.provider:
         config.llm_provider = args.provider
@@ -227,7 +252,7 @@ Examples:
         sys.exit(1)
 
     print()
-    translate_file(args.input, args.novel, args.chapter, args.lang)
+    translate_file(input_path, novel_name, chapter_number, args.lang)
 
 
 if __name__ == "__main__":

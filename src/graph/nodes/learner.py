@@ -12,7 +12,7 @@ import re
 
 from src.models.state import TranslationState
 from src.services.llm import get_llm
-from src.services.glossary import save_glossary, save_chapter_summary
+from src.services.glossary import save_glossary, save_chapter_summary, save_source_language
 from src.services.logger import log_ai_call
 from src.config import config
 
@@ -106,6 +106,9 @@ Respond with JSON ONLY (no other text):
     if new_terms:
         save_glossary(novel_name, new_terms)
         print(f"  📚 Extracted {len(new_terms)} new terms → glossary/{novel_name}.json")
+
+    # Save detected source language for future chapters
+    save_source_language(novel_name, state["source_language"])
 
     log_ai_call(
         "learn_terms",
