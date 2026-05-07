@@ -18,7 +18,7 @@ class GeminiProvider(BaseProvider):
     def provider_name(self) -> str:
         return "gemini"
 
-    def _do_generate(self, system_prompt: str, user_prompt: str) -> str:
+    def _do_generate(self, system_prompt: str, user_prompt: str, call_type: str) -> str:
         if not config.gemini_api_key:
             raise ValueError("GEMINI_API_KEY is not set in .env")
 
@@ -47,14 +47,20 @@ class GeminiProvider(BaseProvider):
         }
 
         start = time.monotonic()
+        call_id = self._log_request_sent(
+            call_type=call_type,
+            url=url.split("?")[0],
+            request_body=payload,
+        )
         response = self._client_instance.post(url, json=payload)
         duration = (time.monotonic() - start) * 1000
         self._check_response(response)
         data = response.json()
 
-        self._log_request(
+        self._log_request_received(
+            call_id=call_id,
+            call_type=call_type,
             url=url.split("?")[0],
-            request_body=payload,
             response_body=data,
             status_code=response.status_code,
             duration_ms=duration,

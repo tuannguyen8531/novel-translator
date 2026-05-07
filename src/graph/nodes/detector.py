@@ -22,7 +22,7 @@ def detector_node(state: TranslationState) -> dict:
     if detected == "unknown":
         sys_prompt = "You are a language detector. Respond with ONLY one word: chinese, korean, or japanese."
         usr_prompt = f"What language is this text written in?\n\n{text_sample}"
-        response = get_llm().generate(system_prompt=sys_prompt, user_prompt=usr_prompt)
+        response = get_llm().generate(system_prompt=sys_prompt, user_prompt=usr_prompt, call_type="detect_language")
         detected = response.strip().lower()
         log_ai_call("detect_language", system_prompt=sys_prompt, user_prompt=usr_prompt, response=response, result=detected, method="llm")
 

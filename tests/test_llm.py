@@ -57,8 +57,9 @@ class TestLLMService:
 
         with patch("httpx.Client") as MockClient:
             MockClient.return_value.post.return_value = mock_response
-            with patch("src.services.llm.base.log_api_request"):
-                return service.generate("system", "user")
+            with patch("src.services.llm.base.log_api_request_sent", return_value="test-call-id"):
+                with patch("src.services.llm.base.log_api_request_received"):
+                    return service.generate("system", "user", "translate")
 
     def test_ollama_generate(self):
         with patch("src.services.llm.factory.config") as mock_config:
@@ -84,7 +85,7 @@ class TestLLMService:
                 reset_llm()
                 service = get_llm()
                 with pytest.raises(ValueError, match="GEMINI_API_KEY"):
-                    service.generate("system", "user")
+                    service.generate("system", "user", "translate")
 
     def test_openrouter_generate(self):
         with patch("src.services.llm.factory.config") as mock_config:

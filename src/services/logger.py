@@ -9,6 +9,7 @@ Two log files:
 import json
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 LOG_DIR = Path("logs")
 LOG_FILE = LOG_DIR / "translation.log"
@@ -30,33 +31,62 @@ def _truncate(text: str, max_len: int = 200) -> str:
     return text[:max_len] + f"... ({len(text)} chars total)"
 
 
-def log_api_request(
+def log_api_request_sent(
     call_type: str,
     provider: str,
     url: str,
     request_body: dict,
+    **kwargs,
+):
+    """Log the HTTP request immediately when sent.
+
+    Returns a call_id to correlate with the response log.
+    """
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    call_id = uuid4().hex
+
+    safe_body = _redact_secrets(request_body)
+
+    entry = {
+        "type": "request",
+        "call_type": call_type,
+        "provider": provider,
+        "call_id": call_id,
+        "url": url,
+        "request": safe_body,
+        **kwargs,
+    }
+    with open(LOG_API_FILE, "a", encoding="utf-8") as f:
+        f.write(f"{timestamp} {json.dumps(entry, ensure_ascii=False)}\n")
+
+    return call_id
+
+
+def log_api_request_received(
+    call_id: str,
+    call_type: str,
+    provider: str,
+    url: str,
     response_body: dict,
     status_code: int,
     duration_ms: float,
     **kwargs,
 ):
-    """Log the raw HTTP request/response to the API log file.
-
-    Format: <timestamp> <json>  (same as translation.log)
-    """
+    """Log the HTTP response after it arrives."""
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    safe_body = _redact_secrets(request_body)
     safe_response = _redact_secrets(response_body)
 
     entry = {
-        "type": call_type,
+        "type": "response",
+        "call_type": call_type,
         "provider": provider,
+        "call_id": call_id,
         "url": url,
         "status_code": status_code,
         "duration_ms": round(duration_ms, 1),
-        "request": safe_body,
         "response": safe_response,
         **kwargs,
     }

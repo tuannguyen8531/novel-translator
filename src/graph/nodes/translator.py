@@ -83,7 +83,7 @@ def translator_node(state: TranslationState) -> dict:
     print(f"  🔄 Translating chunk {chunk_index + 1}/{total_chunks}"
           f"{f' (retry {retry_count})' if retry_count > 0 else ''}...")
 
-    translation = get_llm().generate(system_prompt, user_prompt)
+    translation = get_llm().generate(system_prompt, user_prompt, "translate")
 
     log_ai_call(
         "translate",

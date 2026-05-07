@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 import httpx
 
 from src.config import config
-from src.services.logger import log_api_request
+from src.services.logger import log_api_request_received, log_api_request_sent
 
 
 class BaseProvider(ABC):
@@ -39,14 +39,14 @@ class BaseProvider(ABC):
             self._client = httpx.Client(timeout=300.0)
         return self._client
 
-    def generate(self, system_prompt: str, user_prompt: str) -> str:
+    def generate(self, system_prompt: str, user_prompt: str, call_type: str) -> str:
         """Generate text with auto-retry on rate limits."""
         max_retries = 3
         backoff_delays = [5, 10, 20]
 
         for attempt in range(max_retries + 1):
             try:
-                return self._do_generate(system_prompt, user_prompt)
+                return self._do_generate(system_prompt, user_prompt, call_type)
             except RuntimeError as e:
                 error_msg = str(e)
                 is_retryable = "429" in error_msg or "503" in error_msg or "rate" in error_msg.lower()
@@ -58,27 +58,42 @@ class BaseProvider(ABC):
                     continue
                 raise
 
-        return self._do_generate(system_prompt, user_prompt)
+        return self._do_generate(system_prompt, user_prompt, call_type)
 
     @abstractmethod
-    def _do_generate(self, system_prompt: str, user_prompt: str) -> str:
+    def _do_generate(self, system_prompt: str, user_prompt: str, call_type: str) -> str:
         """Make the actual API call. Must be implemented by subclasses."""
         ...
 
-    def _log_request(
+    def _log_request_sent(
         self,
+        call_type: str,
         url: str,
         request_body: dict,
+    ) -> str:
+        """Log the API request immediately when sent. Returns call_id."""
+        return log_api_request_sent(
+            call_type=call_type,
+            provider=self.provider_name,
+            url=url,
+            request_body=request_body,
+        )
+
+    def _log_request_received(
+        self,
+        call_id: str,
+        call_type: str,
+        url: str,
         response_body: dict,
         status_code: int,
         duration_ms: float,
     ):
-        """Log the API request/response."""
-        log_api_request(
-            call_type=self.provider_name,
+        """Log the API response after it arrives."""
+        log_api_request_received(
+            call_id=call_id,
+            call_type=call_type,
             provider=self.provider_name,
             url=url,
-            request_body=request_body,
             response_body=response_body,
             status_code=status_code,
             duration_ms=duration_ms,

@@ -85,7 +85,7 @@ Respond with JSON ONLY (no other text):
 === VIETNAMESE TRANSLATION ===
 {full_translation[:3000]}"""
 
-    term_response = get_llm().generate(term_system_prompt, term_user_prompt)
+    term_response = get_llm().generate(term_system_prompt, term_user_prompt, "learn_terms")
 
     new_terms = {}
     try:
@@ -134,7 +134,7 @@ Write in Vietnamese. Output ONLY the summary, nothing else."""
 
         summary_user_prompt = f"Summarize chapter {chapter_number}:\n\n{full_translation[:4000]}"
 
-        summary_response = get_llm().generate(summary_system_prompt, summary_user_prompt)
+        summary_response = get_llm().generate(summary_system_prompt, summary_user_prompt, "learn_summary")
 
         save_chapter_summary(novel_name, chapter_number, summary_response)
         print(f"  📋 Chapter {chapter_number} summary saved ({len(summary_response)} chars)")

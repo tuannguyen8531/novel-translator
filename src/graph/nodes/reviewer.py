@@ -46,7 +46,7 @@ Respond with JSON ONLY (no other text):
 === TRANSLATION ===
 {translation}"""
 
-    response = get_llm().generate(system_prompt, user_prompt)
+    response = get_llm().generate(system_prompt, user_prompt, "review")
 
     # Parse JSON response
     try:
