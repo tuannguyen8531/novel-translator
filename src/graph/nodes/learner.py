@@ -8,11 +8,35 @@ Runs after all chunks are translated. Responsible for:
 """
 
 import json
+import re
 
 from src.models.state import TranslationState
-from src.services.llm import llm
+from src.services.llm import get_llm
 from src.services.glossary import save_glossary, save_chapter_summary
 from src.services.logger import log_ai_call
+from src.config import config
+
+# Minimum occurrences in text for a term to qualify for glossary
+MIN_TERM_FREQUENCY = 3
+
+
+def _count_occurrences(text: str, term: str) -> int:
+    """Count case-insensitive occurrences of term in text."""
+    if not term or len(term) < 2:
+        return 0
+    # Escape regex special chars in term
+    escaped = re.escape(term)
+    return len(re.findall(escaped, text, re.IGNORECASE))
+
+
+def _filter_by_frequency(text: str, terms: dict[str, str], min_count: int) -> dict[str, str]:
+    """Keep only terms that appear at least min_count times in the text."""
+    filtered = {}
+    for original, translation in terms.items():
+        count = _count_occurrences(text, original)
+        if count >= min_count:
+            filtered[original] = translation
+    return filtered
 
 
 def learner_node(state: TranslationState) -> dict:
@@ -32,11 +56,17 @@ def learner_node(state: TranslationState) -> dict:
 
     term_system_prompt = f"""You are a linguistic analysis expert. Extract important terms from the novel passage below.
 
-Extract:
-- Character names (original → Vietnamese translation)
-- Place names (original → Vietnamese translation)
-- Special terms (skills, items, organizations, etc.)
-- Recurring important phrases
+STRICT CRITERIA — only include terms that meet ALL of these:
+1. Character names (people, beings with names)
+2. Place names (locations, realms, organizations with names)
+3. Special recurring terms (unique skills, cultivation levels, world-specific concepts that will appear repeatedly)
+
+EXCLUDE:
+- Common words, verbs, adjectives, descriptive phrases
+- One-off terms that appear only once or twice
+- Generic terms like "sword", "fire", "mountain" unless they are proper names
+- Translated dialogue fragments or idioms
+- Terms already in the existing glossary
 
 Existing terms (DO NOT repeat):
 {existing_terms_str}
@@ -55,7 +85,7 @@ Respond with JSON ONLY (no other text):
 === VIETNAMESE TRANSLATION ===
 {full_translation[:3000]}"""
 
-    term_response = llm.generate(term_system_prompt, term_user_prompt)
+    term_response = get_llm().generate(term_system_prompt, term_user_prompt)
 
     new_terms = {}
     try:
@@ -68,6 +98,10 @@ Respond with JSON ONLY (no other text):
         new_terms = term_data.get("terms", {})
     except (json.JSONDecodeError, ValueError):
         pass  # Failed to extract terms, continue without
+
+    # Filter: only keep terms that appear at least MIN_TERM_FREQUENCY times
+    if new_terms:
+        new_terms = _filter_by_frequency(source_text, new_terms, MIN_TERM_FREQUENCY)
 
     if new_terms:
         save_glossary(novel_name, new_terms)
@@ -84,25 +118,29 @@ Respond with JSON ONLY (no other text):
     )
 
     # --- 2. Create chapter summary ---
-    summary_system_prompt = """Write a very concise summary of this chapter in 2-3 sentences (max 50 words).
+    if config.skip_learn_summary:
+        summary_response = ""
+        print(f"  ⏭️  Chapter summary skipped (SKIP_LEARN_SUMMARY=true)")
+    else:
+        summary_system_prompt = """Write a very concise summary of this chapter in 2-3 sentences (max 50 words).
 Include ONLY: key events, main characters involved, and any important plot developments.
 Write in Vietnamese. Output ONLY the summary, nothing else."""
 
-    summary_user_prompt = f"Summarize chapter {chapter_number}:\n\n{full_translation[:4000]}"
+        summary_user_prompt = f"Summarize chapter {chapter_number}:\n\n{full_translation[:4000]}"
 
-    summary_response = llm.generate(summary_system_prompt, summary_user_prompt)
+        summary_response = get_llm().generate(summary_system_prompt, summary_user_prompt)
 
-    save_chapter_summary(novel_name, chapter_number, summary_response)
-    print(f"  📋 Chapter {chapter_number} summary saved ({len(summary_response)} chars)")
+        save_chapter_summary(novel_name, chapter_number, summary_response)
+        print(f"  📋 Chapter {chapter_number} summary saved ({len(summary_response)} chars)")
 
-    log_ai_call(
-        "learn_summary",
-        system_prompt=summary_system_prompt,
-        user_prompt=summary_user_prompt,
-        response=summary_response,
-        chapter=chapter_number,
-        summary_length=len(summary_response),
-    )
+        log_ai_call(
+            "learn_summary",
+            system_prompt=summary_system_prompt,
+            user_prompt=summary_user_prompt,
+            response=summary_response,
+            chapter=chapter_number,
+            summary_length=len(summary_response),
+        )
 
     return {
         "new_terms": new_terms,

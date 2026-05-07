@@ -15,6 +15,7 @@ Structure:
 }
 """
 
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -32,43 +33,74 @@ def _ensure_dir():
     GLOSSARY_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def load_glossary(novel_name: str) -> dict[str, str]:
-    """Load term glossary for a novel. Returns empty dict if not found."""
-    path = _glossary_path(novel_name)
+def _read_json_locked(path: Path) -> dict:
+    """Read JSON file with shared lock."""
     if not path.exists():
         return {}
     with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+        fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+        try:
+            return json.load(f)
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
+def _write_json_locked(path: Path, data: dict):
+    """Write JSON file with exclusive lock."""
+    _ensure_dir()
+    with open(path, "w", encoding="utf-8") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
+def _merge_json_locked(path: Path, updater: callable) -> dict:
+    """Atomically read-modify-write JSON with exclusive lock.
+
+    Args:
+        path: File path
+        updater: Function that takes existing data dict and returns updated dict
+    """
+    _ensure_dir()
+    with open(path, "a+", encoding="utf-8") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            f.seek(0)
+            try:
+                existing_data = json.load(f)
+            except (json.JSONDecodeError, ValueError):
+                existing_data = {}
+            new_data = updater(existing_data)
+            f.seek(0)
+            f.truncate()
+            json.dump(new_data, f, ensure_ascii=False, indent=2)
+            return new_data
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
+def load_glossary(novel_name: str) -> dict[str, str]:
+    """Load term glossary for a novel. Returns empty dict if not found."""
+    path = _glossary_path(novel_name)
+    data = _read_json_locked(path)
     return data.get("terms", {})
 
 
 def save_glossary(novel_name: str, terms: dict[str, str]):
-    """Save/merge terms into the novel's glossary."""
-    _ensure_dir()
+    """Save/merge terms into the novel's glossary (thread-safe)."""
     path = _glossary_path(novel_name)
-
-    # Load existing data
-    existing_data = {}
-    if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
-            existing_data = json.load(f)
-
-    # Merge terms (new terms override old ones)
-    existing_terms = existing_data.get("terms", {})
-    existing_terms.update(terms)
-    existing_data["terms"] = existing_terms
-
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(existing_data, f, ensure_ascii=False, indent=2)
+    _merge_json_locked(path, lambda data: {
+        **data,
+        "terms": {**data.get("terms", {}), **terms},
+    })
 
 
 def load_chapter_summary(novel_name: str, chapter_number: int) -> str:
     """Load summary for a specific chapter. Returns empty string if not found."""
     path = _glossary_path(novel_name)
-    if not path.exists():
-        return ""
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    data = _read_json_locked(path)
     summaries = data.get("chapter_summaries", {})
     return summaries.get(str(chapter_number), "")
 
@@ -85,13 +117,9 @@ def load_chapter_summaries_recent(
     Returns a formatted string ready for inclusion in prompts.
     """
     path = _glossary_path(novel_name)
-    if not path.exists():
-        return ""
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    data = _read_json_locked(path)
     summaries = data.get("chapter_summaries", {})
 
-    # Collect recent summaries (most recent first)
     parts = []
     for ch in range(current_chapter - 1, max(0, current_chapter - 1 - max_count), -1):
         summary = summaries.get(str(ch), "")
@@ -101,27 +129,17 @@ def load_chapter_summaries_recent(
     if not parts:
         return ""
 
-    # Reverse so oldest is first (natural reading order)
     parts.reverse()
     return "\n\n".join(parts)
 
 
 def save_chapter_summary(novel_name: str, chapter_number: int, summary: str):
-    """Save a chapter summary."""
-    _ensure_dir()
+    """Save a chapter summary (thread-safe)."""
     path = _glossary_path(novel_name)
-
-    existing_data = {}
-    if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
-            existing_data = json.load(f)
-
-    summaries = existing_data.get("chapter_summaries", {})
-    summaries[str(chapter_number)] = summary
-    existing_data["chapter_summaries"] = summaries
-
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(existing_data, f, ensure_ascii=False, indent=2)
+    _merge_json_locked(path, lambda data: {
+        **data,
+        "chapter_summaries": {**data.get("chapter_summaries", {}), str(chapter_number): summary},
+    })
 
 
 def format_glossary_for_prompt(terms: dict[str, str]) -> str:

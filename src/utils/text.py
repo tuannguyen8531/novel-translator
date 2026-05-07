@@ -44,13 +44,13 @@ def detect_language_heuristic(text: str) -> str:
     kana_ratio = kana_count / total_meaningful
     cjk_ratio = cjk_count / total_meaningful
 
-    # Korean if >30% Hangul
-    if hangul_ratio > 0.3:
+    # Korean if any significant Hangul presence
+    if hangul_ratio > 0.15:
         return "korean"
-    # Japanese if >10% kana (kana is unique to Japanese)
-    if kana_ratio > 0.1:
+    # Japanese: kana is unique to Japanese — even small ratio is strong signal
+    if kana_ratio > 0.05:
         return "japanese"
-    # Chinese if >30% CJK without kana
+    # Chinese if significant CJK without kana
     if cjk_ratio > 0.3:
         return "chinese"
 

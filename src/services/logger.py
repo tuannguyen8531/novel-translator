@@ -2,22 +2,8 @@
 AI Call Logger — Logs every LLM invocation with full request/response details.
 
 Two log files:
-- logs/translation.log      — Summary log (1 line per call, compact)
-- logs/translation_full.log — Full log (system_prompt, user_prompt, response)
-
-Full log format per entry:
-    ════════════════════════════════════════
-    [2026-05-07 09:12:30] TRANSLATE (chunk 1/3)
-    ════════════════════════════════════════
-    --- SYSTEM PROMPT ---
-    You are a professional translator...
-    --- USER PROMPT ---
-    Translate the following...
-    --- RESPONSE ---
-    Chương 389: ...
-    --- META ---
-    {"provider": "gemini", "chunk_length": 1500, ...}
-    ════════════════════════════════════════
+- logs/translation.log      — Summary (1 line per call, compact JSON)
+- logs/translation_api.log  — API-level JSON log (actual HTTP request/response)
 """
 
 import json
@@ -26,9 +12,74 @@ from pathlib import Path
 
 LOG_DIR = Path("logs")
 LOG_FILE = LOG_DIR / "translation.log"
-LOG_FULL_FILE = LOG_DIR / "translation_full.log"
+LOG_API_FILE = LOG_DIR / "translation_api.log"
 
-SEPARATOR = "═" * 60
+_verbose = False
+
+
+def set_verbose(enabled: bool):
+    """Enable/disable console output of AI calls."""
+    global _verbose
+    _verbose = enabled
+
+
+def _truncate(text: str, max_len: int = 200) -> str:
+    """Truncate text for console display."""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + f"... ({len(text)} chars total)"
+
+
+def log_api_request(
+    call_type: str,
+    provider: str,
+    url: str,
+    request_body: dict,
+    response_body: dict,
+    status_code: int,
+    duration_ms: float,
+    **kwargs,
+):
+    """Log the raw HTTP request/response to the API log file.
+
+    Format: <timestamp> <json>  (same as translation.log)
+    """
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    safe_body = _redact_secrets(request_body)
+    safe_response = _redact_secrets(response_body)
+
+    entry = {
+        "type": call_type,
+        "provider": provider,
+        "url": url,
+        "status_code": status_code,
+        "duration_ms": round(duration_ms, 1),
+        "request": safe_body,
+        "response": safe_response,
+        **kwargs,
+    }
+    with open(LOG_API_FILE, "a", encoding="utf-8") as f:
+        f.write(f"{timestamp} {json.dumps(entry, ensure_ascii=False)}\n")
+
+
+def _redact_secrets(data: dict) -> dict:
+    """Recursively redact API keys and sensitive fields."""
+    redact_keys = {"key", "api_key", "authorization", "token", "secret"}
+    if not isinstance(data, dict):
+        return data
+    result = {}
+    for k, v in data.items():
+        if k.lower() in redact_keys:
+            result[k] = "***REDACTED***"
+        elif isinstance(v, dict):
+            result[k] = _redact_secrets(v)
+        elif isinstance(v, list):
+            result[k] = [_redact_secrets(item) if isinstance(item, dict) else item for item in v]
+        else:
+            result[k] = v
+    return result
 
 
 def log_ai_call(
@@ -39,7 +90,7 @@ def log_ai_call(
     **kwargs,
 ):
     """
-    Log an AI call to both summary and full log files.
+    Log an AI call to both summary and API log files.
 
     Args:
         call_type: Type of call (e.g., "translate", "review", "learn_terms", "learn_summary")
@@ -62,30 +113,22 @@ def log_ai_call(
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(f"{timestamp} {json.dumps(summary_entry, ensure_ascii=False)}\n")
 
-    # --- Full log (detailed, human-readable) ---
-    label = call_type.upper()
-    # Add extra context to the label if available
-    if "chunk_index" in kwargs:
-        total = kwargs.get("total_chunks", "?")
-        label += f" (chunk {kwargs['chunk_index'] + 1}/{total})"
-    elif "chapter" in kwargs:
-        label += f" (chapter {kwargs['chapter']})"
+    # --- Console output (verbose mode only) ---
+    if _verbose:
+        label = call_type.upper()
+        if "chunk_index" in kwargs:
+            total = kwargs.get("total_chunks", "?")
+            label += f" (chunk {kwargs['chunk_index'] + 1}/{total})"
+        elif "chapter" in kwargs:
+            label += f" (chapter {kwargs['chapter']})"
 
-    meta_str = json.dumps(kwargs, ensure_ascii=False, indent=2) if kwargs else "{}"
-
-    full_entry = f"""
-{SEPARATOR}
-[{timestamp}] {label}
-{SEPARATOR}
---- SYSTEM PROMPT ---
-{system_prompt}
---- USER PROMPT ---
-{user_prompt}
---- RESPONSE ---
-{response}
---- META ---
-{meta_str}
-{SEPARATOR}
-"""
-    with open(LOG_FULL_FILE, "a", encoding="utf-8") as f:
-        f.write(full_entry)
+        print(f"\n{'═' * 60}")
+        print(f"[{timestamp}] {label}")
+        print(f"{'═' * 60}")
+        print(f"--- SYSTEM ({len(system_prompt)} chars) ---")
+        print(_truncate(system_prompt))
+        print(f"--- USER ({len(user_prompt)} chars) ---")
+        print(_truncate(user_prompt))
+        print(f"--- RESPONSE ({len(response)} chars) ---")
+        print(_truncate(response))
+        print(f"{'═' * 60}\n")

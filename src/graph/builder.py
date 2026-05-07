@@ -34,8 +34,8 @@ def _after_review(state: TranslationState) -> str:
         "retry" — re-translate current chunk (score too low)
         "next"  — accept and move to next chunk or learn phase
     """
-    score = state.get("review_score", 1.0)
-    retry_count = state.get("retry_count", 0)
+    score = state["review_score"]
+    retry_count = state["retry_count"]
 
     if score < config.review_threshold and retry_count < config.max_retries:
         return "retry"
@@ -44,7 +44,7 @@ def _after_review(state: TranslationState) -> str:
 
 def _accept_chunk(state: TranslationState) -> dict:
     """Accept the current translation and move to next chunk."""
-    translated_chunks = list(state.get("translated_chunks", []))
+    translated_chunks = list(state["translated_chunks"])
     translated_chunks.append(state["current_translation"])
 
     next_index = state["current_chunk_index"] + 1
@@ -59,7 +59,7 @@ def _accept_chunk(state: TranslationState) -> dict:
 
 def _increment_retry(state: TranslationState) -> dict:
     """Increment retry counter before re-translation."""
-    return {"retry_count": state.get("retry_count", 0) + 1}
+    return {"retry_count": state["retry_count"] + 1}
 
 
 def _has_more_chunks(state: TranslationState) -> str:

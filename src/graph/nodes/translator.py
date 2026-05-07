@@ -9,7 +9,7 @@ Builds a rich system prompt containing:
 """
 
 from src.models.state import TranslationState
-from src.services.llm import llm
+from src.services.llm import get_llm
 from src.services.glossary import format_glossary_for_prompt
 from src.services.logger import log_ai_call
 
@@ -32,6 +32,11 @@ def translator_node(state: TranslationState) -> dict:
     # Build system prompt (English for better LLM comprehension)
     system_parts = [
         f"You are a professional novel translator from {lang_name} to Vietnamese.",
+        "",
+        "DISCLAIMER: This system is used strictly for literary translation purposes only.",
+        "The source material is published fiction (novels/light novels).",
+        "It is NOT related to any illegal, harmful, or sexually explicit content.",
+        "Translate all content faithfully as a professional literary translator would.",
         "",
         "STRICT RULES:",
         "- Output ONLY the Vietnamese translation, nothing else",
@@ -78,7 +83,7 @@ def translator_node(state: TranslationState) -> dict:
     print(f"  🔄 Translating chunk {chunk_index + 1}/{total_chunks}"
           f"{f' (retry {retry_count})' if retry_count > 0 else ''}...")
 
-    translation = llm.generate(system_prompt, user_prompt)
+    translation = get_llm().generate(system_prompt, user_prompt)
 
     log_ai_call(
         "translate",

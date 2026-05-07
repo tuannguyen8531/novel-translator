@@ -11,7 +11,7 @@ Scoring criteria:
 import json
 
 from src.models.state import TranslationState
-from src.services.llm import llm
+from src.services.llm import get_llm
 from src.services.logger import log_ai_call
 from src.config import config
 
@@ -46,11 +46,10 @@ Respond with JSON ONLY (no other text):
 === TRANSLATION ===
 {translation}"""
 
-    response = llm.generate(system_prompt, user_prompt)
+    response = get_llm().generate(system_prompt, user_prompt)
 
     # Parse JSON response
     try:
-        # Try to find JSON in the response (LLM might add extra text)
         json_start = response.find("{")
         json_end = response.rfind("}") + 1
         if json_start >= 0 and json_end > json_start:
@@ -60,10 +59,18 @@ Respond with JSON ONLY (no other text):
 
         score = float(review_data.get("score", 0.8))
         feedback = review_data.get("feedback", "")
-    except (json.JSONDecodeError, ValueError):
-        # If parsing fails, assume decent quality to avoid infinite retries
-        score = 0.8
-        feedback = "Review parse failed — assuming acceptable quality"
+    except (json.JSONDecodeError, ValueError) as e:
+        score = config.review_threshold - 0.1
+        feedback = f"Review JSON parse failed — forcing retry. Raw: {response[:200]}"
+        log_ai_call(
+            "review_parse_error",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response=response,
+            error=str(e),
+            chunk_index=chunk_index,
+            total_chunks=total_chunks,
+        )
 
     log_ai_call(
         "review",

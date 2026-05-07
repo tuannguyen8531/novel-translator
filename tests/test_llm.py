@@ -1,0 +1,115 @@
+"""Tests for LLM service."""
+
+import json
+from unittest.mock import patch, MagicMock
+
+import pytest
+import httpx
+
+from src.services.llm import LLMService, get_llm, reset_llm
+
+
+class TestLLMService:
+    def test_provider_property_reads_config(self):
+        with patch("src.services.llm.config") as mock_config:
+            mock_config.llm_provider = "gemini"
+            service = LLMService()
+            assert service.provider == "gemini"
+
+            mock_config.llm_provider = "ollama"
+            assert service.provider == "ollama"
+
+    def test_generate_unknown_provider(self):
+        with patch("src.services.llm.config") as mock_config:
+            mock_config.llm_provider = "unknown"
+            service = LLMService()
+            with pytest.raises(ValueError, match="Unknown LLM provider"):
+                service.generate("sys", "usr")
+
+    def _mock_httpx_post(self, mock_config, provider, response_json):
+        """Helper to mock HTTP responses for LLM providers."""
+        if provider == "ollama":
+            mock_config.llm_provider = "ollama"
+            mock_config.ollama_base_url = "http://localhost:11434"
+            mock_config.ollama_model = "test-model"
+        elif provider == "gemini":
+            mock_config.llm_provider = "gemini"
+            mock_config.gemini_api_key = "test-key"
+            mock_config.gemini_model = "gemini-test"
+        elif provider == "openrouter":
+            mock_config.llm_provider = "openrouter"
+            mock_config.openrouter_api_key = "test-key"
+            mock_config.openrouter_model = "test-model"
+
+        service = LLMService()
+        mock_response = MagicMock()
+        mock_response.is_success = True
+        mock_response.status_code = 200
+        mock_response.json.return_value = response_json
+
+        with patch("httpx.Client") as MockClient:
+            MockClient.return_value.post.return_value = mock_response
+            with patch("src.services.llm.log_api_request"):
+                return service.generate("system", "user")
+
+    def test_ollama_generate(self):
+        with patch("src.services.llm.config") as mock_config:
+            result = self._mock_httpx_post(
+                mock_config, "ollama",
+                {"message": {"content": "translated text"}}
+            )
+            assert result == "translated text"
+
+    def test_gemini_generate(self):
+        with patch("src.services.llm.config") as mock_config:
+            result = self._mock_httpx_post(
+                mock_config, "gemini",
+                {"candidates": [{"content": {"parts": [{"text": "translated"}]}}]}
+            )
+            assert result == "translated"
+
+    def test_gemini_missing_key(self):
+        with patch("src.services.llm.config") as mock_config:
+            mock_config.llm_provider = "gemini"
+            mock_config.gemini_api_key = ""
+
+            service = LLMService()
+            with pytest.raises(ValueError, match="GEMINI_API_KEY"):
+                service.generate("system", "user")
+
+    def test_openrouter_generate(self):
+        with patch("src.services.llm.config") as mock_config:
+            result = self._mock_httpx_post(
+                mock_config, "openrouter",
+                {"choices": [{"message": {"content": "translated"}}]}
+            )
+            assert result == "translated"
+
+    def test_check_response_error(self):
+        service = LLMService()
+        mock_response = MagicMock()
+        mock_response.is_success = False
+        mock_response.status_code = 400
+        mock_response.json.return_value = {"error": {"message": "bad request"}}
+
+        with pytest.raises(RuntimeError, match="Test API error \\(400\\)"):
+            service._check_response(mock_response, "Test")
+
+    def test_context_manager(self):
+        service = LLMService()
+        with service as s:
+            assert s is service
+        assert service._client is None
+
+    def test_get_llm_singleton(self):
+        reset_llm()
+        llm1 = get_llm()
+        llm2 = get_llm()
+        assert llm1 is llm2
+
+    def test_reset_llm(self):
+        reset_llm()
+        llm1 = get_llm()
+        reset_llm()
+        llm2 = get_llm()
+        assert llm1 is not llm2

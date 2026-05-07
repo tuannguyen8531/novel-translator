@@ -19,6 +19,7 @@ warnings.filterwarnings("ignore", message=".*LangChainPendingDeprecationWarning.
 
 from src.config import config
 from src.graph.builder import build_graph
+from src.models.state import initial_state
 
 
 # ANSI colors
@@ -124,26 +125,12 @@ def translate_file(input_path: str, novel_name: str, chapter_number: int, langua
 
     start_time = time.time()
 
-    result = graph.invoke({
-        "source_text": source_text,
-        "source_language": language,
-        "novel_name": novel_name,
-        "chapter_number": chapter_number,
-        # Initialize empty state fields
-        "translation_rules": "",
-        "glossary": {},
-        "previous_summary": "",
-        "chunks": [],
-        "current_chunk_index": 0,
-        "translated_chunks": [],
-        "current_translation": "",
-        "review_score": 0.0,
-        "review_feedback": "",
-        "retry_count": 0,
-        "new_terms": {},
-        "chapter_summary": "",
-        "final_translation": "",
-    })
+    result = graph.invoke(initial_state(
+        source_text=source_text,
+        source_language=language,
+        novel_name=novel_name,
+        chapter_number=chapter_number,
+    ))
 
     elapsed = time.time() - start_time
 
@@ -204,19 +191,35 @@ Examples:
         default=None,
         help="Skip the review step (faster, no quality check)",
     )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Print full AI request/response to console",
+    )
+    parser.add_argument(
+        "--skip-learn-summary",
+        action="store_true",
+        help="Skip chapter summary generation (saves 1 LLM call per chapter)",
+    )
 
     args = parser.parse_args()
 
     # Override provider if specified
     if args.provider:
         config.llm_provider = args.provider
-        # Re-create LLM service with new provider
-        from src.services import llm as llm_module
-        llm_module.llm = llm_module.LLMService(provider=args.provider)
 
     # Override skip_review if specified via CLI
     if args.skip_review:
         config.skip_review = True
+
+    # Enable verbose console logging
+    if args.verbose:
+        from src.services.logger import set_verbose
+        set_verbose(True)
+
+    # Override skip_learn_summary if specified via CLI
+    if args.skip_learn_summary:
+        config.skip_learn_summary = True
 
     print_banner()
 

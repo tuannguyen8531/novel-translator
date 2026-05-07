@@ -10,10 +10,19 @@ No SDKs — all providers use httpx for HTTP calls.
 """
 
 import json
+import time
+
 import httpx
 
 from src.config import config
+from src.services.logger import log_api_request
 
+BLOCKED_CATEGORIES = [
+    "HARM_CATEGORY_HATE_SPEECH",
+    "HARM_CATEGORY_DANGEROUS_CONTENT",
+    "HARM_CATEGORY_HARASSMENT",
+    "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+]
 
 class LLMService:
     """
@@ -30,25 +39,58 @@ class LLMService:
 
     def __init__(
         self,
-        provider: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
     ):
-        self.provider = provider or config.llm_provider
         self.temperature = temperature if temperature is not None else config.translation_temperature
         self.max_tokens = max_tokens or config.translation_max_tokens
-        self._client = httpx.Client(timeout=300.0)  # 5 min timeout for long translations
+        self._client: httpx.Client | None = None
+
+    @property
+    def provider(self) -> str:
+        """Read provider from config at call time (supports runtime overrides)."""
+        return config.llm_provider
+
+    @property
+    def _client_instance(self) -> httpx.Client:
+        """Lazy-init HTTP client."""
+        if self._client is None:
+            self._client = httpx.Client(timeout=300.0)
+        return self._client
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
-        """Generate text using the configured LLM provider."""
-        if self.provider == "ollama":
+        """Generate text using the configured LLM provider, with auto-retry on rate limits."""
+        max_retries = 3
+        backoff_delays = [5, 10, 20]  # seconds
+
+        for attempt in range(max_retries + 1):
+            try:
+                return self._dispatch(system_prompt, user_prompt)
+            except RuntimeError as e:
+                error_msg = str(e)
+                is_retryable = "429" in error_msg or "503" in error_msg or "rate" in error_msg.lower()
+
+                if is_retryable and attempt < max_retries:
+                    delay = backoff_delays[attempt]
+                    print(f"  Rate limited — waiting {delay}s before retry ({attempt + 1}/{max_retries})...")
+                    time.sleep(delay)
+                    continue
+                raise
+
+        # Should not reach here, but just in case
+        return self._dispatch(system_prompt, user_prompt)
+
+    def _dispatch(self, system_prompt: str, user_prompt: str) -> str:
+        """Route to the correct provider."""
+        provider = self.provider
+        if provider == "ollama":
             return self._generate_ollama(system_prompt, user_prompt)
-        elif self.provider == "gemini":
+        elif provider == "gemini":
             return self._generate_gemini(system_prompt, user_prompt)
-        elif self.provider == "openrouter":
+        elif provider == "openrouter":
             return self._generate_openrouter(system_prompt, user_prompt)
         else:
-            raise ValueError(f"Unknown LLM provider: {self.provider}")
+            raise ValueError(f"Unknown LLM provider: {provider}")
 
     def _generate_ollama(self, system_prompt: str, user_prompt: str) -> str:
         """Call Ollama local API."""
@@ -66,9 +108,22 @@ class LLMService:
             },
         }
 
-        response = self._client.post(url, json=payload)
+        start = __import__("time").monotonic()
+        response = self._client_instance.post(url, json=payload)
+        duration = (__import__("time").monotonic() - start) * 1000
         self._check_response(response, "Ollama")
         data = response.json()
+
+        log_api_request(
+            call_type="ollama",
+            provider="ollama",
+            url=url,
+            request_body=payload,
+            response_body=data,
+            status_code=response.status_code,
+            duration_ms=duration,
+        )
+
         return data["message"]["content"].strip()
 
     def _generate_gemini(self, system_prompt: str, user_prompt: str) -> str:
@@ -93,22 +148,35 @@ class LLMService:
             "generationConfig": {
                 "temperature": self.temperature,
                 "maxOutputTokens": self.max_tokens,
-                "thinkingConfig": {
-                    "thinkingBudget": 0,  # Disable thinking to get clean translation output
-                },
             },
+            "safetySettings": [
+                {"category": cat, "threshold": "BLOCK_NONE"}
+                for cat in BLOCKED_CATEGORIES
+            ],
         }
 
-        response = self._client.post(url, json=payload)
+        start = __import__("time").monotonic()
+        response = self._client_instance.post(url, json=payload)
+        duration = (__import__("time").monotonic() - start) * 1000
         self._check_response(response, "Gemini")
         data = response.json()
 
-        # Extract text from Gemini response
+        log_api_request(
+            call_type="gemini",
+            provider="gemini",
+            url=url.split("?")[0],  # Log URL without API key
+            request_body=payload,
+            response_body=data,
+            status_code=response.status_code,
+            duration_ms=duration,
+        )
+
         candidates = data.get("candidates", [])
         if not candidates:
             raise RuntimeError(f"Gemini returned no candidates: {data}")
         parts = candidates[0].get("content", {}).get("parts", [])
-        return "".join(p.get("text", "") for p in parts).strip()
+        # Filter out thought parts (internal reasoning)
+        return "".join(p.get("text", "") for p in parts if not p.get("thought", False)).strip()
 
     def _generate_openrouter(self, system_prompt: str, user_prompt: str) -> str:
         """Call OpenRouter API (OpenAI-compatible)."""
@@ -130,9 +198,21 @@ class LLMService:
             "max_tokens": self.max_tokens,
         }
 
-        response = self._client.post(url, json=payload, headers=headers)
+        start = __import__("time").monotonic()
+        response = self._client_instance.post(url, json=payload, headers=headers)
+        duration = (__import__("time").monotonic() - start) * 1000
         self._check_response(response, "OpenRouter")
         data = response.json()
+
+        log_api_request(
+            call_type="openrouter",
+            provider="openrouter",
+            url=url,
+            request_body=payload,
+            response_body=data,
+            status_code=response.status_code,
+            duration_ms=duration,
+        )
 
         choices = data.get("choices", [])
         if not choices:
@@ -144,7 +224,6 @@ class LLMService:
         if response.is_success:
             return
 
-        # Try to extract error message from response body
         try:
             error_data = response.json()
             error_msg = error_data.get("error", {}).get("message", "") or str(error_data)
@@ -157,7 +236,9 @@ class LLMService:
 
     def close(self):
         """Close the HTTP client."""
-        self._client.close()
+        if self._client is not None:
+            self._client.close()
+            self._client = None
 
     def __enter__(self):
         return self
@@ -166,5 +247,20 @@ class LLMService:
         self.close()
 
 
-# Singleton instance
-llm = LLMService()
+_llm_instance: LLMService | None = None
+
+
+def get_llm() -> LLMService:
+    """Get the global LLM service instance (lazy, re-created if config changes)."""
+    global _llm_instance
+    if _llm_instance is None:
+        _llm_instance = LLMService()
+    return _llm_instance
+
+
+def reset_llm():
+    """Reset the global LLM instance (useful after config changes)."""
+    global _llm_instance
+    if _llm_instance is not None:
+        _llm_instance.close()
+    _llm_instance = None

@@ -38,6 +38,7 @@ class Config:
     review_threshold: float = 0.7
     max_retries: int = 2
     skip_review: bool = False
+    skip_learn_summary: bool = False
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -57,6 +58,7 @@ class Config:
             review_threshold=float(os.getenv("REVIEW_THRESHOLD", "0.7")),
             max_retries=int(os.getenv("MAX_RETRIES", "2")),
             skip_review=os.getenv("SKIP_REVIEW", "false").lower() in ("true", "1", "yes"),
+            skip_learn_summary=os.getenv("SKIP_LEARN_SUMMARY", "false").lower() in ("true", "1", "yes"),
         )
 
 
