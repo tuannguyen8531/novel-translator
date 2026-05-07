@@ -1,3 +1,6 @@
+[project.scripts]
+translate = "translate:main"
+
 [project]
 name = "novel-translator"
 version = "0.1.0"

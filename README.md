@@ -15,6 +15,7 @@ CLI tool for translating web novel chapters from Chinese/Korean/Japanese to Viet
 
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/) for dependency management
+- [Ollama](https://ollama.com) (for local LLM) — or use Gemini/OpenRouter API keys
 
 ## Setup
 
@@ -24,6 +25,15 @@ uv sync
 
 # Configure environment
 cp .env.example .env  # or create .env manually
+
+# Install Ollama (macOS/Linux)
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull the default model
+ollama pull qwen3:8b
+
+# Start Ollama (runs in background)
+ollama serve
 ```
 
 ### Environment Variables
@@ -56,30 +66,55 @@ SKIP_REVIEW=false
 
 ## Usage
 
+Place source files in the format `input/{novel}/chapter_{number}.txt`:
+
+```
+input/
+└── my-novel/
+    ├── chapter_1.txt
+    ├── chapter_2.txt
+    └── chapter_3.txt
+```
+
+Then run:
+
 ```bash
-# Basic usage (auto-detect language)
-uv run python main.py -i input/chapter1.txt -n "my-novel" -c 1
+# Translate all untranslated chapters
+uv run translate my-novel
 
 # Specify source language
-uv run python main.py -i input/chapter1.txt -n "my-novel" -c 1 -l chinese
+uv run translate my-novel -l chinese
 
-# Use Gemini provider
-uv run python main.py -i input/chapter1.txt -n "my-novel" -c 1 -p gemini
+# Use Gemini, skip review and summary
+uv run translate my-novel -p gemini -r -s
 
-# Skip review step (faster, no quality check)
-uv run python main.py -i input/chapter1.txt -n "my-novel" -c 1 --skip-review
+# Translate a range of chapters
+uv run translate my-novel --from 5 --to 10
+
+# Verbose mode (print AI requests/responses)
+uv run translate my-novel -v
 ```
 
 ### Options
 
 | Flag | Description |
 |------|-------------|
-| `-i, --input` | Path to input `.txt` file (required) |
-| `-n, --novel` | Novel name for glossary (required) |
-| `-c, --chapter` | Chapter number (required) |
-| `-l, --lang` | Source language: `chinese`, `korean`, `japanese` (auto-detect if omitted) |
-| `-p, --provider` | LLM provider: `ollama`, `gemini`, `openrouter` (overrides `.env`) |
-| `--skip-review` | Skip quality review step |
+| `novel` | Novel name (matches directory in `input/`) |
+| `-l, --lang` | Source language: `chinese`, `korean`, `japanese` (auto-detect) |
+| `-p, --provider` | LLM provider: `ollama`, `gemini`, `openrouter` |
+| `-r, --skip-review` | Skip review step |
+| `-s, --skip-summary` | Skip chapter summary generation |
+| `-v, --verbose` | Print full AI request/response to console |
+| `--from N` | Start from chapter N |
+| `--to N` | Stop at chapter N (0 = all) |
+
+### How it works
+
+1. Scans `input/{novel}/` for `chapter_*.txt` files
+2. Checks glossary for already-translated chapters
+3. Translates only missing chapters, in order
+4. Saves output to `output/{novel}/chapter_*.txt`
+5. Tracks translated chapters in glossary — re-running skips them
 
 ## Architecture
 
@@ -101,7 +136,8 @@ detect → context → chunk → translate → review → [retry loop] → accep
 ## Project Structure
 
 ```
-├── main.py              # CLI entry point
+├── translate.py         # Batch CLI (primary entry point)
+├── main.py              # Single-chapter CLI (legacy)
 ├── src/
 │   ├── config.py        # Environment-based configuration
 │   ├── models/
@@ -116,10 +152,11 @@ detect → context → chunk → translate → review → [retry loop] → accep
 │   └── utils/
 │       └── text.py      # Language detection, chunking
 ├── rules/               # Translation rules (common + per-language)
+├── tests/               # Test suite
 ├── glossary/            # Auto-generated per-novel glossaries
 ├── input/               # Place source chapters here
 ├── output/              # Translated chapters saved here
-└── logs/                # Full AI request/response logs
+└── logs/                # AI request/response logs
 ```
 
 ## Testing

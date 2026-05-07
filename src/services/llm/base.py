@@ -1,0 +1,112 @@
+"""
+LLM Service — Abstract base class for provider implementations.
+
+All providers inherit from this class and implement `_do_generate()`.
+Shared logic (HTTP client, retry, logging) lives here.
+"""
+
+import time
+from abc import ABC, abstractmethod
+
+import httpx
+
+from src.config import config
+from src.services.logger import log_api_request
+
+
+class BaseProvider(ABC):
+    """Base class for LLM providers."""
+
+    def __init__(
+        self,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ):
+        self.temperature = temperature if temperature is not None else config.translation_temperature
+        self.max_tokens = max_tokens or config.translation_max_tokens
+        self._client: httpx.Client | None = None
+
+    @property
+    @abstractmethod
+    def provider_name(self) -> str:
+        """Provider identifier (e.g., 'ollama', 'gemini')."""
+        ...
+
+    @property
+    def _client_instance(self) -> httpx.Client:
+        """Lazy-init HTTP client."""
+        if self._client is None:
+            self._client = httpx.Client(timeout=300.0)
+        return self._client
+
+    def generate(self, system_prompt: str, user_prompt: str) -> str:
+        """Generate text with auto-retry on rate limits."""
+        max_retries = 3
+        backoff_delays = [5, 10, 20]
+
+        for attempt in range(max_retries + 1):
+            try:
+                return self._do_generate(system_prompt, user_prompt)
+            except RuntimeError as e:
+                error_msg = str(e)
+                is_retryable = "429" in error_msg or "503" in error_msg or "rate" in error_msg.lower()
+
+                if is_retryable and attempt < max_retries:
+                    delay = backoff_delays[attempt]
+                    print(f"  Rate limited — waiting {delay}s before retry ({attempt + 1}/{max_retries})...")
+                    time.sleep(delay)
+                    continue
+                raise
+
+        return self._do_generate(system_prompt, user_prompt)
+
+    @abstractmethod
+    def _do_generate(self, system_prompt: str, user_prompt: str) -> str:
+        """Make the actual API call. Must be implemented by subclasses."""
+        ...
+
+    def _log_request(
+        self,
+        url: str,
+        request_body: dict,
+        response_body: dict,
+        status_code: int,
+        duration_ms: float,
+    ):
+        """Log the API request/response."""
+        log_api_request(
+            call_type=self.provider_name,
+            provider=self.provider_name,
+            url=url,
+            request_body=request_body,
+            response_body=response_body,
+            status_code=status_code,
+            duration_ms=duration_ms,
+        )
+
+    def _check_response(self, response: httpx.Response):
+        """Check HTTP response and raise a readable error if it failed."""
+        if response.is_success:
+            return
+
+        try:
+            error_data = response.json()
+            error_msg = error_data.get("error", {}).get("message", "") or str(error_data)
+        except Exception:
+            error_msg = response.text[:500]
+
+        raise RuntimeError(
+            f"{self.provider_name} API error ({response.status_code}): {error_msg}"
+        )
+
+    def close(self):
+        """Close the HTTP client."""
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()

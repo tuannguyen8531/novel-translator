@@ -12,7 +12,7 @@ import re
 
 from src.models.state import TranslationState
 from src.services.llm import get_llm
-from src.services.glossary import save_glossary, save_chapter_summary, save_source_language
+from src.services.glossary import save_glossary, save_chapter_summary, save_source_language, mark_chapter_translated
 from src.services.logger import log_ai_call
 from src.config import config
 
@@ -109,6 +109,9 @@ Respond with JSON ONLY (no other text):
 
     # Save detected source language for future chapters
     save_source_language(novel_name, state["source_language"])
+
+    # Mark chapter as translated
+    mark_chapter_translated(novel_name, chapter_number)
 
     log_ai_call(
         "learn_terms",
