@@ -3,17 +3,20 @@ AI Call Logger — Logs every LLM invocation with full request/response details.
 
 Two log files:
 - logs/translation.log      — Summary (1 line per call, compact JSON)
-- logs/translation_api.log  — API-level JSON log (actual HTTP request/response)
+- logs/llm_api.log  — API-level JSON log (actual HTTP request/response)
+- logs/error.log    — Error log (structured error messages with stack traces)
 """
 
 import json
+import traceback
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
 LOG_DIR = Path("logs")
 LOG_FILE = LOG_DIR / "translation.log"
-LOG_API_FILE = LOG_DIR / "translation_api.log"
+LOG_API_FILE = LOG_DIR / "llm_api.log"
+LOG_ERROR_FILE = LOG_DIR / "error.log"
 
 _verbose = False
 
@@ -110,6 +113,27 @@ def _redact_secrets(data: dict) -> dict:
         else:
             result[k] = v
     return result
+
+
+def log_error(context: str, error: Exception | str, **kwargs):
+    """Log an error to error.log with context."""
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    error_msg = str(error)
+    tb = None
+    if isinstance(error, Exception):
+        tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
+
+    entry = {
+        "context": context,
+        "error": error_msg,
+        "traceback": tb,
+        **kwargs
+    }
+    
+    with open(LOG_ERROR_FILE, "a", encoding="utf-8") as f:
+        f.write(f"{timestamp} {json.dumps(entry, ensure_ascii=False)}\n")
 
 
 def log_ai_call(

@@ -1,6 +1,7 @@
 """Fallback provider — wraps primary + fallback, auto-switches on failure."""
 
 from src.services.llm.base import BaseProvider
+from src.services.logger import log_error
 
 ANSI_RESET = "\033[0m"
 ANSI_YELLOW = "\033[33m"
@@ -30,7 +31,9 @@ class FallbackProvider(BaseProvider):
             is_fallback_worthy = (
                 "429" in error_msg
                 or "503" in error_msg
+                or "500" in error_msg
                 or "rate" in error_msg.lower()
+                or "internal" in error_msg.lower()
                 or "no candidates" in error_msg.lower()
                 or "blocked" in error_msg.lower()
                 or "PROHIBITED" in error_msg.upper()
@@ -40,6 +43,13 @@ class FallbackProvider(BaseProvider):
             if is_fallback_worthy:
                 print(f"  {ANSI_YELLOW}⚠ {self._primary.provider_name} failed: {error_msg[:100]}{ANSI_RESET}")
                 print(f"  {ANSI_YELLOW}  Falling back to {self._fallback.provider_name}...{ANSI_RESET}")
+                log_error(
+                    context="LLM Fallback Triggered",
+                    error=e,
+                    primary_provider=self._primary.provider_name,
+                    fallback_provider=self._fallback.provider_name,
+                    call_type=call_type
+                )
                 return self._fallback.generate(system_prompt, user_prompt, call_type)
             raise
 

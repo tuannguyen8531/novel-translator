@@ -9,7 +9,7 @@ from src.services import logger as logger_module
 def test_log_api_request_writes_separate_request_and_response_records(tmp_path, monkeypatch):
     log_dir = tmp_path / "logs"
     monkeypatch.setattr(logger_module, "LOG_DIR", log_dir)
-    monkeypatch.setattr(logger_module, "LOG_API_FILE", log_dir / "translation_api.log")
+    monkeypatch.setattr(logger_module, "LOG_API_FILE", log_dir / "llm_api.log")
     monkeypatch.setattr(logger_module, "_redact_secrets", lambda data: data)
     monkeypatch.setattr(logger_module, "datetime", type("DummyDateTime", (), {"now": staticmethod(lambda: type("DummyNow", (), {"strftime": staticmethod(lambda _fmt: "2026-05-07 15:00:00")})())}))
     monkeypatch.setattr(logger_module, "uuid4", type("DummyUUID4", (), {"hex": "abc123"}))
@@ -33,7 +33,7 @@ def test_log_api_request_writes_separate_request_and_response_records(tmp_path, 
         chunk_index=0,
     )
 
-    lines = (log_dir / "translation_api.log").read_text(encoding="utf-8").splitlines()
+    lines = (log_dir / "llm_api.log").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 2
 
     first = json.loads(lines[0].split(" ", 2)[2])

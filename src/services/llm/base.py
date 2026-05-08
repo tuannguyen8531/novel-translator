@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 import httpx
 
 from src.config import config
-from src.services.logger import log_api_request_received, log_api_request_sent
+from src.services.logger import log_api_request_received, log_api_request_sent, log_error
 
 
 class BaseProvider(ABC):
@@ -49,7 +49,13 @@ class BaseProvider(ABC):
                 return self._do_generate(system_prompt, user_prompt, call_type)
             except RuntimeError as e:
                 error_msg = str(e)
-                is_retryable = "429" in error_msg or "503" in error_msg or "rate" in error_msg.lower()
+                log_error(
+                    context=f"LLM API Error (provider: {self.provider_name}, type: {call_type})",
+                    error=e,
+                    attempt=attempt + 1,
+                    max_retries=max_retries
+                )
+                is_retryable = "429" in error_msg or "503" in error_msg or "500" in error_msg or "rate" in error_msg.lower() or "internal" in error_msg.lower()
 
                 if is_retryable and attempt < max_retries:
                     delay = backoff_delays[attempt]

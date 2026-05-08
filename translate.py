@@ -14,6 +14,7 @@ from pathlib import Path
 import time
 
 from src.config import config
+from src.services.logger import log_error
 from src.graph.builder import build_graph
 from src.models.state import initial_state
 from src.utils.progress import ProgressTracker
@@ -293,6 +294,7 @@ Examples:
                 print(f"  {GREEN}✓ Ch.{chapter_num}{RESET} {DIM}→ {out_chars:,} chars · {elapsed:.1f}s{terms_msg}{RESET}")
         except Exception as e:
             progress.chapter_done(False)
+            log_error(f"Translation failed for chapter {chapter_num}", e, chapter=chapter_num, novel=novel_name)
             print(f"  {RED}✗ Ch.{chapter_num}: {e}{RESET}")
 
     progress.print_summary()
@@ -301,4 +303,10 @@ Examples:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        log_error("Top-level execution error", e)
+        print(f"\n[Error] {e}")
+        import sys
+        sys.exit(1)

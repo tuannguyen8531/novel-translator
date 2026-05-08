@@ -11,7 +11,7 @@ __pycache__/
 
 # Runtime data
 logs/
-!logs/translation_api.log
+!logs/llm_api.log
 output/
 glossary/
 input/*

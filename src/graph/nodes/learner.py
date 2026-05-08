@@ -13,7 +13,7 @@ import re
 from src.models.state import TranslationState
 from src.services.llm import get_llm
 from src.services.glossary import save_glossary, save_chapter_summary, save_source_language
-from src.services.logger import log_ai_call
+from src.services.logger import log_ai_call, log_error
 from src.config import config
 
 # Minimum occurrences in text for a term to qualify for glossary
@@ -85,10 +85,11 @@ Respond with JSON ONLY (no other text):
 === VIETNAMESE TRANSLATION ===
 {full_translation[:3000]}"""
 
-    term_response = get_llm().generate(term_system_prompt, term_user_prompt, "learn_terms")
-
     new_terms = {}
+    term_response = ""
     try:
+        term_response = get_llm().generate(term_system_prompt, term_user_prompt, "learn_terms")
+
         json_start = term_response.find("{")
         json_end = term_response.rfind("}") + 1
         if json_start >= 0 and json_end > json_start:
@@ -96,8 +97,9 @@ Respond with JSON ONLY (no other text):
         else:
             term_data = json.loads(term_response)
         new_terms = term_data.get("terms", {})
-    except (json.JSONDecodeError, ValueError):
-        pass  # Failed to extract terms, continue without
+    except Exception as e:
+        log_error("Failed to extract terms", e, chapter=chapter_number)
+        print(f"\n  [Warning] Failed to extract terms: {e}")
 
     # Filter: only keep terms that appear at least MIN_TERM_FREQUENCY times
     if new_terms:
@@ -129,18 +131,23 @@ Write in Vietnamese. Output ONLY the summary, nothing else."""
 
         summary_user_prompt = f"Summarize chapter {chapter_number}:\n\n{full_translation[:4000]}"
 
-        summary_response = get_llm().generate(summary_system_prompt, summary_user_prompt, "learn_summary")
+        try:
+            summary_response = get_llm().generate(summary_system_prompt, summary_user_prompt, "learn_summary")
 
-        save_chapter_summary(novel_name, chapter_number, summary_response)
+            save_chapter_summary(novel_name, chapter_number, summary_response)
 
-        log_ai_call(
-            "learn_summary",
-            system_prompt=summary_system_prompt,
-            user_prompt=summary_user_prompt,
-            response=summary_response,
-            chapter=chapter_number,
-            summary_length=len(summary_response),
-        )
+            log_ai_call(
+                "learn_summary",
+                system_prompt=summary_system_prompt,
+                user_prompt=summary_user_prompt,
+                response=summary_response,
+                chapter=chapter_number,
+                summary_length=len(summary_response),
+            )
+        except Exception as e:
+            log_error("Failed to generate summary", e, chapter=chapter_number)
+            print(f"\n  [Warning] Failed to generate summary: {e}")
+            summary_response = ""
 
     return {
         "new_terms": new_terms,
