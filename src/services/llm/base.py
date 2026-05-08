@@ -5,6 +5,8 @@ All providers inherit from this class and implement `_do_generate()`.
 Shared logic (HTTP client, retry, logging) lives here.
 """
 
+import sys
+import threading
 import time
 from abc import ABC, abstractmethod
 
@@ -12,6 +14,36 @@ import httpx
 
 from src.config import config
 from src.services.logger import log_api_request_received, log_api_request_sent, log_error
+
+
+_SPINNER_CHARS = "⠋⠙⠹⠸⠼⠴⠦⠧"
+
+
+class _Spinner:
+    """Simple terminal spinner running on a background thread."""
+
+    def __init__(self, message: str):
+        self._message = message
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._spin, daemon=True)
+
+    def _spin(self):
+        idx = 0
+        while not self._stop.is_set():
+            sys.stdout.write(f"\r  {_SPINNER_CHARS[idx]} {self._message}")
+            sys.stdout.flush()
+            idx = (idx + 1) % len(_SPINNER_CHARS)
+            self._stop.wait(0.1)
+        sys.stdout.write("\r" + " " * (len(self._message) + 4) + "\r")
+        sys.stdout.flush()
+
+    def __enter__(self):
+        self._thread.start()
+        return self
+
+    def __exit__(self, *args):
+        self._stop.set()
+        self._thread.join()
 
 
 class BaseProvider(ABC):
@@ -46,7 +78,8 @@ class BaseProvider(ABC):
 
         for attempt in range(max_retries + 1):
             try:
-                return self._do_generate(system_prompt, user_prompt, call_type)
+                with _Spinner(f"Calling {self.provider_name} ({call_type})..."):
+                    return self._do_generate(system_prompt, user_prompt, call_type)
             except RuntimeError as e:
                 error_msg = str(e)
                 log_error(

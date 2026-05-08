@@ -63,7 +63,9 @@ def learner_node(state: TranslationState) -> dict:
         for name_orig, info in existing_entities.items():
             name_vi = info.get("name_vi", "")
             role = info.get("role", "")
-            entity_parts.append(f"  {name_orig}" + (f" ({name_vi})" if name_vi else "") + (f" [{role}]" if role else ""))
+            pronoun = info.get("pronoun", "")
+            pronoun_str = f' pronoun="{pronoun}"' if pronoun else ""
+            entity_parts.append(f"  {name_orig}" + (f" ({name_vi})" if name_vi else "") + (f" [{role}{pronoun_str}]" if role or pronoun else ""))
         if existing_edges:
             edge_parts = []
             for edge in existing_edges:
@@ -107,6 +109,9 @@ RULES:
 - Store each relationship ONCE — do NOT add both A→B and B→A for the same pair
   (e.g. if you add [A, B, "mother"], do NOT also add [B, A, "son"])
 - If a character's role is unclear, use "minor"
+- Assign a consistent Vietnamese pronoun for each character based on age, gender, status,
+  and relationship dynamics. Examples: "cậu", "anh ấy", "ông", "bà", "cô ấy", "chị ấy",
+  "hắn", "y", "nó", "ta", "quý ngài", "tiểu thư". Use the SAME pronoun across all chapters.
 
 Respond with JSON ONLY (no other text):
 {{
@@ -117,7 +122,8 @@ Respond with JSON ONLY (no other text):
         "entities": {{
             "original name": {{
                 "name_vi": "Vietnamese name",
-                "role": "protagonist | antagonist | supporting | minor"
+                "role": "protagonist | antagonist | supporting | minor",
+                "pronoun": "Vietnamese pronoun (e.g. cậu, anh ấy, cô ấy, hắn)"
             }}
         }},
         "edges": [

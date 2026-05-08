@@ -22,8 +22,9 @@ Structure:
 }
 
 Character schema:
-- entities: dict of original_name -> {name_vi, role}
+- entities: dict of original_name -> {name_vi, role, pronoun}
   role: protagonist | antagonist | supporting | minor
+  pronoun: Vietnamese pronoun assigned on first appearance (immutable)
 - edges: list of [from_orig, to_orig, relationship_type, since_chapter]
   Each relationship stored ONCE (no bidirectional duplication).
   Relationship types: mother, father, sibling, friend, enemy, master,
@@ -298,6 +299,7 @@ def save_characters_batch(novel_name: str, entities: dict, edges: list, chapter:
                 existing_entities[name] = {
                     "name_vi": info.get("name_vi", ""),
                     "role": info.get("role", "unknown"),
+                    "pronoun": info.get("pronoun", ""),
                 }
             else:
                 if info.get("name_vi"):
@@ -305,6 +307,9 @@ def save_characters_batch(novel_name: str, entities: dict, edges: list, chapter:
                 new_role = info.get("role", "")
                 if new_role and new_role != "unknown":
                     existing_entities[name]["role"] = new_role
+                # Pronoun is immutable once set — first assignment wins
+                if not existing_entities[name].get("pronoun"):
+                    existing_entities[name]["pronoun"] = info.get("pronoun", "")
 
         # --- Merge edges (deduplication: treat A→B and B→A as same pair) ---
         existing_edges: list = data.get("edges", [])
@@ -339,7 +344,7 @@ def format_relationships_shorthand(entities: dict, edges: list) -> str:
 
     Outputs:
         === CHARACTERS ===
-        Roles: Lục Viễn Thu[protagonist], Bạch Thanh Hạ[protagonist]
+        Roles: Lục Viễn Thu[protagonist, pronoun="cậu"], Bạch Thanh Hạ[protagonist, pronoun="cô ấy"]
         Relations: Tô Tiểu Nhã(mother)->Lục Viễn Thu; Lục Thiên(father)->Lục Viễn Thu
         === END CHARACTERS ===
     """
@@ -352,7 +357,13 @@ def format_relationships_shorthand(entities: dict, edges: list) -> str:
     for name, info in entities.items():
         name_vi = info.get("name_vi") or name
         role = info.get("role", "")
-        if role in NOTABLE_ROLES:
+        pronoun = info.get("pronoun", "")
+        if role in NOTABLE_ROLES or pronoun:
+            tag = role
+            if pronoun:
+                tag += f', pronoun="{pronoun}"'
+            roles_parts.append(f"{name_vi}[{tag}]")
+        elif role:
             roles_parts.append(f"{name_vi}[{role}]")
 
     # Build relations line
