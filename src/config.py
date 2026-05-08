@@ -37,8 +37,8 @@ class Config:
     chunk_overlap: int = 100
     review_threshold: float = 0.7
     max_retries: int = 2
-    skip_review: bool = False
-    skip_learn_summary: bool = False
+    enable_review: bool = False
+    enable_summary: bool = False
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -57,8 +57,8 @@ class Config:
             chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "100")),
             review_threshold=float(os.getenv("REVIEW_THRESHOLD", "0.7")),
             max_retries=int(os.getenv("MAX_RETRIES", "2")),
-            skip_review=os.getenv("SKIP_REVIEW", "false").lower() in ("true", "1", "yes"),
-            skip_learn_summary=os.getenv("SKIP_LEARN_SUMMARY", "false").lower() in ("true", "1", "yes"),
+            enable_review=os.getenv("ENABLE_REVIEW", "false").lower() in ("true", "1", "yes"),
+            enable_summary=os.getenv("ENABLE_SUMMARY", "false").lower() in ("true", "1", "yes"),
         )
 
 

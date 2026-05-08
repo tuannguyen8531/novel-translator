@@ -11,6 +11,7 @@ class TestAfterReview:
         with patch("src.graph.builder.config") as mock_config:
             mock_config.review_threshold = 0.7
             mock_config.max_retries = 2
+            mock_config.enable_review = True
 
             state = initial_state("text", "chinese", "novel", 1)
             state["review_score"] = 0.9
@@ -22,6 +23,7 @@ class TestAfterReview:
         with patch("src.graph.builder.config") as mock_config:
             mock_config.review_threshold = 0.7
             mock_config.max_retries = 2
+            mock_config.enable_review = True
 
             state = initial_state("text", "chinese", "novel", 1)
             state["review_score"] = 0.5
@@ -33,6 +35,7 @@ class TestAfterReview:
         with patch("src.graph.builder.config") as mock_config:
             mock_config.review_threshold = 0.7
             mock_config.max_retries = 2
+            mock_config.enable_review = True
 
             state = initial_state("text", "chinese", "novel", 1)
             state["review_score"] = 0.5

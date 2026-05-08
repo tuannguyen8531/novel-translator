@@ -124,9 +124,8 @@ Respond with JSON ONLY (no other text):
     )
 
     # --- 2. Create chapter summary ---
-    if config.skip_learn_summary:
+    if not config.enable_summary:
         summary_response = ""
-        print(f"  ⏭️  Chapter summary skipped (SKIP_LEARN_SUMMARY=true)")
     else:
         summary_system_prompt = """Write a very concise summary of this chapter in 2-3 sentences (max 50 words).
 Include ONLY: key events, main characters involved, and any important plot developments.

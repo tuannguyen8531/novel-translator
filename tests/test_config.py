@@ -15,14 +15,16 @@ class TestConfig:
                 assert config.ollama_model == "qwen3:8b"
                 assert config.translation_temperature == 0.3
                 assert config.chunk_size == 1500
-                assert config.skip_review is False
+                assert config.enable_review is False
+                assert config.enable_summary is False
 
     def test_from_env_overrides(self):
         env = {
             "LLM_PROVIDER": "gemini",
             "GEMINI_API_KEY": "test-key",
             "CHUNK_SIZE": "2000",
-            "SKIP_REVIEW": "true",
+            "ENABLE_REVIEW": "true",
+            "ENABLE_SUMMARY": "true",
         }
         with patch.dict(os.environ, env, clear=True):
             with patch("src.config.load_dotenv"):
@@ -30,28 +32,29 @@ class TestConfig:
                 assert config.llm_provider == "gemini"
                 assert config.gemini_api_key == "test-key"
                 assert config.chunk_size == 2000
-                assert config.skip_review is True
+                assert config.enable_review is True
+                assert config.enable_summary is True
 
-    def test_skip_review_variants(self):
+    def test_enable_review_variants(self):
         variants_true = ["true", "True", "TRUE", "1", "yes", "YES"]
         variants_false = ["false", "False", "0", "no", "NO", ""]
 
         with patch("src.config.load_dotenv"):
             for val in variants_true:
-                with patch.dict(os.environ, {"SKIP_REVIEW": val}, clear=True):
-                    assert Config.from_env().skip_review is True, f"Failed for {val}"
+                with patch.dict(os.environ, {"ENABLE_REVIEW": val}, clear=True):
+                    assert Config.from_env().enable_review is True, f"Failed for {val}"
 
             for val in variants_false:
-                with patch.dict(os.environ, {"SKIP_REVIEW": val}, clear=True):
-                    assert Config.from_env().skip_review is False, f"Failed for {val}"
+                with patch.dict(os.environ, {"ENABLE_REVIEW": val}, clear=True):
+                    assert Config.from_env().enable_review is False, f"Failed for {val}"
 
-    def test_skip_learn_summary_default(self):
+    def test_enable_summary_default(self):
         with patch.dict(os.environ, {}, clear=True):
             with patch("src.config.load_dotenv"):
                 config = Config()
-                assert config.skip_learn_summary is False
+                assert config.enable_summary is False
 
-    def test_skip_learn_summary_from_env(self):
-        with patch.dict(os.environ, {"SKIP_LEARN_SUMMARY": "true"}, clear=True):
+    def test_enable_summary_from_env(self):
+        with patch.dict(os.environ, {"ENABLE_SUMMARY": "true"}, clear=True):
             with patch("src.config.load_dotenv"):
-                assert Config.from_env().skip_learn_summary is True
+                assert Config.from_env().enable_summary is True

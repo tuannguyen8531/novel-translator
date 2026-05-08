@@ -61,7 +61,8 @@ CHUNK_SIZE=1500
 CHUNK_OVERLAP=100
 REVIEW_THRESHOLD=0.7
 MAX_RETRIES=2
-SKIP_REVIEW=false
+ENABLE_REVIEW=false
+ENABLE_SUMMARY=false
 ```
 
 ## Usage
@@ -85,7 +86,7 @@ uv run translate my-novel
 # Specify source language
 uv run translate my-novel -l chinese
 
-# Use Gemini, skip review and summary
+# Use Gemini with review and summary
 uv run translate my-novel -p gemini -r -s
 
 # Translate a range of chapters
@@ -102,8 +103,8 @@ uv run translate my-novel -v
 | `novel` | Novel name (matches directory in `input/`) |
 | `-l, --lang` | Source language: `chinese`, `korean`, `japanese` (auto-detect) |
 | `-p, --provider` | LLM provider: `ollama`, `gemini`, `openrouter` |
-| `-r, --skip-review` | Skip review step |
-| `-s, --skip-summary` | Skip chapter summary generation |
+| `-r, --review` | Enable review step |
+| `-s, --summary` | Enable chapter summary generation |
 | `-v, --verbose` | Print full AI request/response to console |
 | `--from N` | Start from chapter N |
 | `--to N` | Stop at chapter N (0 = all) |

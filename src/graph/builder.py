@@ -76,10 +76,10 @@ def build_graph() -> StateGraph:
     """
     Build and compile the translation pipeline graph.
 
-    If config.skip_review is True, the review node is skipped entirely.
+    If config.enable_review is False, the review node is skipped entirely.
     """
     graph = StateGraph(TranslationState)
-    skip_review = config.skip_review
+    enable_review = config.enable_review
 
     # Add nodes
     graph.add_node("detect", detector_node)
@@ -95,11 +95,7 @@ def build_graph() -> StateGraph:
     graph.add_edge("context", "chunk")
     graph.add_edge("chunk", "translate")
 
-    if skip_review:
-        # Skip review: translate → accept directly
-        graph.add_edge("translate", "accept_chunk")
-        print("  ⏭️  Review skipped (SKIP_REVIEW=true)")
-    else:
+    if enable_review:
         # With review: translate → review → retry or accept
         graph.add_node("review", reviewer_node)
         graph.add_node("increment_retry", _increment_retry)
@@ -113,6 +109,9 @@ def build_graph() -> StateGraph:
         )
 
         graph.add_edge("increment_retry", "translate")
+    else:
+        # Skip review: translate → accept directly
+        graph.add_edge("translate", "accept_chunk")
 
     # After accepting: more chunks or learn
     graph.add_conditional_edges(

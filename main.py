@@ -204,20 +204,19 @@ Examples:
         help="LLM provider (overrides .env setting)",
     )
     parser.add_argument(
-        "--skip-review",
+        "-r", "--review",
         action="store_true",
-        default=None,
-        help="Skip the review step (faster, no quality check)",
+        help="Enable review step",
+    )
+    parser.add_argument(
+        "-s", "--summary",
+        action="store_true",
+        help="Enable chapter summary generation",
     )
     parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Print full AI request/response to console",
-    )
-    parser.add_argument(
-        "--skip-learn-summary",
-        action="store_true",
-        help="Skip chapter summary generation (saves 1 LLM call per chapter)",
     )
 
     args = parser.parse_args()
@@ -229,18 +228,16 @@ Examples:
     if args.provider:
         config.llm_provider = args.provider
 
-    # Override skip_review if specified via CLI
-    if args.skip_review:
-        config.skip_review = True
+    # Override review/summary if specified via CLI
+    if args.review:
+        config.enable_review = True
+    if args.summary:
+        config.enable_summary = True
 
     # Enable verbose console logging
     if args.verbose:
         from src.services.logger import set_verbose
         set_verbose(True)
-
-    # Override skip_learn_summary if specified via CLI
-    if args.skip_learn_summary:
-        config.skip_learn_summary = True
 
     print_banner()
 

@@ -197,14 +197,14 @@ Examples:
         help="LLM provider (overrides .env)",
     )
     parser.add_argument(
-        "-r", "--skip-review",
+        "-r", "--review",
         action="store_true",
-        help="Skip review step",
+        help="Enable review step",
     )
     parser.add_argument(
-        "-s", "--skip-summary",
+        "-s", "--summary",
         action="store_true",
-        help="Skip chapter summary generation",
+        help="Enable chapter summary generation",
     )
     parser.add_argument(
         "-v", "--verbose",
@@ -233,10 +233,10 @@ Examples:
     # Apply overrides
     if args.provider:
         config.llm_provider = args.provider
-    if args.skip_review:
-        config.skip_review = True
-    if args.skip_summary:
-        config.skip_learn_summary = True
+    if args.review:
+        config.enable_review = True
+    if args.summary:
+        config.enable_summary = True
 
     if args.verbose:
         from src.services.logger import set_verbose
