@@ -10,13 +10,8 @@ Usage:
 import argparse
 import re
 import sys
-import warnings
 from pathlib import Path
 import time
-
-# Suppress LangChain internal deprecation warnings
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="langgraph")
-warnings.filterwarnings("ignore", message=".*LangChainPendingDeprecationWarning.*")
 
 from src.config import config
 from src.graph.builder import build_graph
