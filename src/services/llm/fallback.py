@@ -50,7 +50,20 @@ class FallbackProvider(BaseProvider):
                     fallback_provider=self._fallback.provider_name,
                     call_type=call_type
                 )
-                return self._fallback.generate(system_prompt, user_prompt, call_type)
+                try:
+                    return self._fallback.generate(system_prompt, user_prompt, call_type)
+                except RuntimeError as fallback_err:
+                    log_error(
+                        context="LLM Fallback Also Failed",
+                        error=fallback_err,
+                        primary_provider=self._primary.provider_name,
+                        fallback_provider=self._fallback.provider_name,
+                        call_type=call_type
+                    )
+                    raise RuntimeError(
+                        f"Both {self._primary.provider_name} and {self._fallback.provider_name} failed. "
+                        f"Primary: {error_msg[:100]} | Fallback: {str(fallback_err)[:100]}"
+                    ) from fallback_err
             raise
 
     def _do_generate(self, system_prompt: str, user_prompt: str, call_type: str) -> str:

@@ -41,7 +41,7 @@ class BaseProvider(ABC):
 
     def generate(self, system_prompt: str, user_prompt: str, call_type: str) -> str:
         """Generate text with auto-retry on rate limits."""
-        max_retries = 3
+        max_retries = config.max_retries
         backoff_delays = [5, 10, 20]
 
         for attempt in range(max_retries + 1):
@@ -63,8 +63,6 @@ class BaseProvider(ABC):
                     time.sleep(delay)
                     continue
                 raise
-
-        return self._do_generate(system_prompt, user_prompt, call_type)
 
     @abstractmethod
     def _do_generate(self, system_prompt: str, user_prompt: str, call_type: str) -> str:
