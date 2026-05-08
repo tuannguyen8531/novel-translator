@@ -58,3 +58,14 @@ class TestConfig:
         with patch.dict(os.environ, {"ENABLE_SUMMARY": "true"}, clear=True):
             with patch("src.config.load_dotenv"):
                 assert Config.from_env().enable_summary is True
+
+    def test_fallback_provider_default(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("src.config.load_dotenv"):
+                config = Config()
+                assert config.fallback_provider == "ollama"
+
+    def test_fallback_provider_from_env(self):
+        with patch.dict(os.environ, {"FALLBACK_PROVIDER": "gemini"}, clear=True):
+            with patch("src.config.load_dotenv"):
+                assert Config.from_env().fallback_provider == "gemini"

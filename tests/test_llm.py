@@ -11,20 +11,23 @@ from src.services.llm.base import BaseProvider
 from src.services.llm.ollama import OllamaProvider
 from src.services.llm.gemini import GeminiProvider
 from src.services.llm.openrouter import OpenRouterProvider
+from src.services.llm.fallback import FallbackProvider
 
 
 class TestLLMService:
     def test_provider_property_reads_config(self):
         with patch("src.services.llm.factory.config") as factory_config:
             factory_config.llm_provider = "gemini"
+            factory_config.fallback_provider = "ollama"
             reset_llm()
             service = get_llm()
-            assert isinstance(service, GeminiProvider)
+            assert isinstance(service, FallbackProvider)
 
             factory_config.llm_provider = "ollama"
+            factory_config.fallback_provider = "gemini"
             reset_llm()
             service = get_llm()
-            assert isinstance(service, OllamaProvider)
+            assert isinstance(service, FallbackProvider)
 
     def test_generate_unknown_provider(self):
         with patch("src.services.llm.factory.config") as factory_config:
@@ -37,14 +40,17 @@ class TestLLMService:
         """Helper to mock HTTP responses for LLM providers."""
         if provider == "ollama":
             mock_config.llm_provider = "ollama"
+            mock_config.fallback_provider = "ollama"  # Same = no fallback wrapper
             mock_config.ollama_base_url = "http://localhost:11434"
             mock_config.ollama_model = "test-model"
         elif provider == "gemini":
             mock_config.llm_provider = "gemini"
+            mock_config.fallback_provider = "gemini"
             mock_config.gemini_api_key = "test-key"
             mock_config.gemini_model = "gemini-test"
         elif provider == "openrouter":
             mock_config.llm_provider = "openrouter"
+            mock_config.fallback_provider = "openrouter"
             mock_config.openrouter_api_key = "test-key"
             mock_config.openrouter_model = "test-model"
 
@@ -82,6 +88,7 @@ class TestLLMService:
             mock_config.gemini_api_key = ""
             with patch("src.services.llm.factory.config") as factory_config:
                 factory_config.llm_provider = "gemini"
+                factory_config.fallback_provider = "gemini"
                 reset_llm()
                 service = get_llm()
                 with pytest.raises(ValueError, match="GEMINI_API_KEY"):
@@ -98,6 +105,7 @@ class TestLLMService:
     def test_check_response_error(self):
         with patch("src.services.llm.factory.config") as factory_config:
             factory_config.llm_provider = "ollama"
+            factory_config.fallback_provider = "ollama"
             reset_llm()
             service = get_llm()
             mock_response = MagicMock()
@@ -111,6 +119,7 @@ class TestLLMService:
     def test_context_manager(self):
         with patch("src.services.llm.factory.config") as factory_config:
             factory_config.llm_provider = "ollama"
+            factory_config.fallback_provider = "ollama"
             reset_llm()
             service = get_llm()
             with service as s:
@@ -120,6 +129,7 @@ class TestLLMService:
     def test_get_llm_singleton(self):
         with patch("src.services.llm.factory.config") as factory_config:
             factory_config.llm_provider = "ollama"
+            factory_config.fallback_provider = "ollama"
             reset_llm()
             llm1 = get_llm()
             llm2 = get_llm()
@@ -128,8 +138,89 @@ class TestLLMService:
     def test_reset_llm(self):
         with patch("src.services.llm.factory.config") as factory_config:
             factory_config.llm_provider = "ollama"
+            factory_config.fallback_provider = "ollama"
             reset_llm()
             llm1 = get_llm()
             reset_llm()
             llm2 = get_llm()
             assert llm1 is not llm2
+
+
+class TestFallbackProvider:
+    def test_fallback_on_content_block(self):
+        primary = MagicMock(spec=BaseProvider)
+        primary.provider_name = "gemini"
+        primary.temperature = 0.3
+        primary.max_tokens = 4096
+        primary.generate.side_effect = RuntimeError("PROHIBITED CONTENT")
+
+        fallback = MagicMock(spec=BaseProvider)
+        fallback.provider_name = "ollama"
+        fallback.generate.return_value = "fallback result"
+
+        wrapper = FallbackProvider(primary, fallback)
+        result = wrapper.generate("sys", "user", "translate")
+
+        assert result == "fallback result"
+        fallback.generate.assert_called_once_with("sys", "user", "translate")
+
+    def test_fallback_on_no_candidates(self):
+        primary = MagicMock(spec=BaseProvider)
+        primary.provider_name = "gemini"
+        primary.temperature = 0.3
+        primary.max_tokens = 4096
+        primary.generate.side_effect = RuntimeError("Gemini returned no candidates")
+
+        fallback = MagicMock(spec=BaseProvider)
+        fallback.provider_name = "ollama"
+        fallback.generate.return_value = "ok"
+
+        wrapper = FallbackProvider(primary, fallback)
+        result = wrapper.generate("sys", "user", "translate")
+
+        assert result == "ok"
+
+    def test_fallback_on_rate_limit(self):
+        primary = MagicMock(spec=BaseProvider)
+        primary.provider_name = "gemini"
+        primary.temperature = 0.3
+        primary.max_tokens = 4096
+        primary.generate.side_effect = RuntimeError("429 rate limit")
+
+        fallback = MagicMock(spec=BaseProvider)
+        fallback.provider_name = "ollama"
+        fallback.generate.return_value = "ok"
+
+        wrapper = FallbackProvider(primary, fallback)
+        result = wrapper.generate("sys", "user", "translate")
+
+        assert result == "ok"
+
+    def test_no_fallback_on_config_error(self):
+        """Config errors (missing API key) should not trigger fallback."""
+        primary = MagicMock(spec=BaseProvider)
+        primary.provider_name = "gemini"
+        primary.temperature = 0.3
+        primary.max_tokens = 4096
+        primary.generate.side_effect = ValueError("GEMINI_API_KEY is not set")
+
+        fallback = MagicMock(spec=BaseProvider)
+
+        wrapper = FallbackProvider(primary, fallback)
+        with pytest.raises(ValueError, match="GEMINI_API_KEY"):
+            wrapper.generate("sys", "user", "translate")
+
+        fallback.generate.assert_not_called()
+
+    def test_fallback_factory_integration(self):
+        with patch("src.services.llm.factory.config") as factory_config:
+            factory_config.llm_provider = "gemini"
+            factory_config.fallback_provider = "ollama"
+            factory_config.gemini_api_key = "test-key"
+            factory_config.gemini_model = "test"
+            factory_config.ollama_base_url = "http://localhost:11434"
+            factory_config.ollama_model = "test"
+            reset_llm()
+
+            service = get_llm()
+            assert isinstance(service, FallbackProvider)

@@ -68,6 +68,9 @@ class GeminiProvider(BaseProvider):
 
         candidates = data.get("candidates", [])
         if not candidates:
+            block_reason = data.get("promptFeedback", {}).get("blockReason", "")
+            if block_reason:
+                raise RuntimeError(f"Gemini blocked: {block_reason}")
             raise RuntimeError(f"Gemini returned no candidates: {data}")
         parts = candidates[0].get("content", {}).get("parts", [])
         return "".join(p.get("text", "") for p in parts if not p.get("thought", False)).strip()

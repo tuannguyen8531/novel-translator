@@ -17,6 +17,7 @@ class Config:
 
     # LLM Provider: "ollama" | "gemini" | "openrouter"
     llm_provider: str = "ollama"
+    fallback_provider: str = "ollama"
 
     # Ollama settings
     ollama_base_url: str = "http://localhost:11434"
@@ -45,6 +46,7 @@ class Config:
         """Create config from environment variables."""
         return cls(
             llm_provider=os.getenv("LLM_PROVIDER", "ollama"),
+            fallback_provider=os.getenv("FALLBACK_PROVIDER", "ollama"),
             ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
             ollama_model=os.getenv("OLLAMA_MODEL", "qwen3:8b"),
             gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
