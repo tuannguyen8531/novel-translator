@@ -14,8 +14,6 @@ from src.services.glossary import (
     format_glossary_for_prompt,
     load_source_language,
     save_source_language,
-    load_translated_chapters,
-    mark_chapter_translated,
     GLOSSARY_DIR,
 )
 
@@ -105,26 +103,3 @@ class TestGlossary:
         save_source_language("test-novel", "")
         result = load_source_language("test-novel")
         assert result == ""
-
-    def test_mark_and_load_translated_chapters(self):
-        mark_chapter_translated("test-novel", 1)
-        mark_chapter_translated("test-novel", 3)
-        result = load_translated_chapters("test-novel")
-        assert result == {1, 3}
-
-    def test_translated_chapters_sorted(self):
-        mark_chapter_translated("test-novel", 5)
-        mark_chapter_translated("test-novel", 1)
-        mark_chapter_translated("test-novel", 3)
-        result = load_translated_chapters("test-novel")
-        assert result == {1, 3, 5}
-
-    def test_translated_chapters_no_duplicates(self):
-        mark_chapter_translated("test-novel", 1)
-        mark_chapter_translated("test-novel", 1)
-        result = load_translated_chapters("test-novel")
-        assert result == {1}
-
-    def test_load_translated_chapters_nonexistent(self):
-        result = load_translated_chapters("nonexistent")
-        assert result == set()

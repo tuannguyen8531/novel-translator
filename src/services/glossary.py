@@ -12,8 +12,7 @@ Structure:
         "1": "Summary of chapter 1...",
         "2": "Summary of chapter 2..."
     },
-    "source_language": "chinese",
-    "translated_chapters": [1, 2, 3]
+    "source_language": "chinese"
 }
 """
 
@@ -171,20 +170,3 @@ def format_glossary_for_prompt(terms: dict[str, str]) -> str:
         lines.append(f"  {original} → {translated}")
     lines.append("=== END GLOSSARY ===")
     return "\n".join(lines)
-
-
-def load_translated_chapters(novel_name: str) -> set[int]:
-    """Load set of translated chapter numbers for a novel."""
-    path = _glossary_path(novel_name)
-    data = _read_json_locked(path)
-    chapters = data.get("translated_chapters", [])
-    return set(chapters)
-
-
-def mark_chapter_translated(novel_name: str, chapter_number: int):
-    """Mark a chapter as translated (thread-safe)."""
-    path = _glossary_path(novel_name)
-    _merge_json_locked(path, lambda data: {
-        **data,
-        "translated_chapters": sorted(set(data.get("translated_chapters", [])) | {chapter_number}),
-    })

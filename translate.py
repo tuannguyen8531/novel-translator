@@ -10,9 +10,9 @@ Usage:
 import argparse
 import re
 import sys
-import time
 import warnings
 from pathlib import Path
+import time
 
 # Suppress LangChain internal deprecation warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="langgraph")
@@ -21,9 +21,7 @@ warnings.filterwarnings("ignore", message=".*LangChainPendingDeprecationWarning.
 from src.config import config
 from src.graph.builder import build_graph
 from src.models.state import initial_state
-from src.services.glossary import (
-    load_translated_chapters,
-)
+from src.utils.progress import ProgressTracker
 
 # ANSI colors
 RESET = "\033[0m"
@@ -127,22 +125,25 @@ def scan_chapters(novel_name: str) -> dict[int, Path]:
 
 def find_untranslated(novel_name: str, chapters: dict[int, Path]) -> list[int]:
     """Find chapters that exist in input but haven't been translated yet."""
-    translated = load_translated_chapters(novel_name)
+    output_dir = Path("output") / novel_name
+    translated = set()
+    if output_dir.exists():
+        for f in output_dir.iterdir():
+            match = re.match(r"^chapter_(\d+)\.txt$", f.name)
+            if match:
+                translated.add(int(match.group(1)))
     return [ch for ch in chapters if ch not in translated]
 
 
-def translate_file(input_path: Path, novel_name: str, chapter_number: int, language: str = "") -> bool:
-    """Run the translation pipeline on a file. Returns True on success."""
+def translate_file(input_path: Path, novel_name: str, chapter_number: int, language: str = "") -> tuple[bool, int, float]:
+    """Run the translation pipeline on a file. Returns (success, char_count, elapsed)."""
+    import time
     source_text = input_path.read_text(encoding="utf-8")
     if not source_text.strip():
-        print(f"  {RED}✗ Empty file, skipping{RESET}")
-        return False
+        return False, 0, 0
 
-    print(f"{DIM}  📄 {input_path.name} ({len(source_text)} chars){RESET}")
-
+    start = time.time()
     graph = build_graph()
-
-    start_time = time.time()
 
     result = graph.invoke(initial_state(
         source_text=source_text,
@@ -151,7 +152,7 @@ def translate_file(input_path: Path, novel_name: str, chapter_number: int, langu
         chapter_number=chapter_number,
     ))
 
-    elapsed = time.time() - start_time
+    elapsed = time.time() - start
 
     # Save output
     output_dir = Path("output") / novel_name
@@ -161,12 +162,7 @@ def translate_file(input_path: Path, novel_name: str, chapter_number: int, langu
     final_text = result.get("final_translation", "")
     output_file.write_text(final_text, encoding="utf-8")
 
-    new_terms = result.get("new_terms", {})
-    print(f"  {GREEN}✓ Done{RESET} · {DIM}{len(final_text)} chars · {elapsed:.1f}s")
-    if new_terms:
-        print(f"  {DIM}+ {len(new_terms)} new terms{RESET}")
-
-    return True
+    return True, len(final_text), elapsed
 
 
 def main():
@@ -270,6 +266,39 @@ Examples:
     print(f"{DIM}📕 {novel_name}: {len(chapters)} chapters found, {total} to translate{RESET}")
     print(f"{DIM}   Chapters: {untranslated[0]}-{untranslated[-1]}{RESET}")
     print()
+
+    # Load source language from glossary if not specified
+    language = args.lang
+    if not language:
+        from src.services.glossary import load_source_language
+        language = load_source_language(novel_name)
+        if language:
+            print(f"{DIM}🌐 Language: {language} (from glossary){RESET}")
+        else:
+            print(f"{DIM}🌐 Language: auto-detect{RESET}")
+    else:
+        print(f"{DIM}🌐 Language: {language} (specified){RESET}")
+    print()
+
+    # Translate chapters with progress tracker
+    progress = ProgressTracker(total, novel_name)
+
+    for chapter_num in untranslated:
+        chapter_path = chapters[chapter_num]
+        file_size = len(chapter_path.read_text(encoding="utf-8"))
+
+        progress.start_chapter(chapter_num, file_size)
+
+        try:
+            success, out_chars, elapsed = translate_file(chapter_path, novel_name, chapter_num, language)
+            progress.chapter_done(success)
+            if success:
+                print(f"  {GREEN}✓ Ch.{chapter_num}{RESET} {DIM}→ {out_chars:,} chars · {elapsed:.1f}s{RESET}")
+        except Exception as e:
+            progress.chapter_done(False)
+            print(f"  {RED}✗ Ch.{chapter_num}: {e}{RESET}")
+
+    progress.print_summary()
 
     # Load source language from glossary if not specified
     language = args.lang

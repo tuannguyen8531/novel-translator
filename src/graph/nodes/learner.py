@@ -12,7 +12,7 @@ import re
 
 from src.models.state import TranslationState
 from src.services.llm import get_llm
-from src.services.glossary import save_glossary, save_chapter_summary, save_source_language, mark_chapter_translated
+from src.services.glossary import save_glossary, save_chapter_summary, save_source_language
 from src.services.logger import log_ai_call
 from src.config import config
 
@@ -105,13 +105,9 @@ Respond with JSON ONLY (no other text):
 
     if new_terms:
         save_glossary(novel_name, new_terms)
-        print(f"  📚 Extracted {len(new_terms)} new terms → glossary/{novel_name}.json")
 
     # Save detected source language for future chapters
     save_source_language(novel_name, state["source_language"])
-
-    # Mark chapter as translated
-    mark_chapter_translated(novel_name, chapter_number)
 
     log_ai_call(
         "learn_terms",
@@ -136,7 +132,6 @@ Write in Vietnamese. Output ONLY the summary, nothing else."""
         summary_response = get_llm().generate(summary_system_prompt, summary_user_prompt, "learn_summary")
 
         save_chapter_summary(novel_name, chapter_number, summary_response)
-        print(f"  📋 Chapter {chapter_number} summary saved ({len(summary_response)} chars)")
 
         log_ai_call(
             "learn_summary",

@@ -15,8 +15,6 @@ def chunker_node(state: TranslationState) -> dict:
         overlap=config.chunk_overlap,
     )
 
-    print(f"  📦 Split into {len(chunks)} chunks (avg {sum(len(c) for c in chunks) // max(len(chunks), 1)} chars)")
-
     return {
         "chunks": chunks,
         "current_chunk_index": 0,

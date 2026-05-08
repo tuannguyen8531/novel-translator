@@ -83,8 +83,6 @@ Respond with JSON ONLY (no other text):
         feedback=feedback,
     )
 
-    print(f"  📊 Review score: {score:.2f}" + (f" — {feedback}" if feedback else ""))
-
     return {
         "review_score": score,
         "review_feedback": feedback,

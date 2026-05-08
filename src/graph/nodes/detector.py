@@ -3,11 +3,13 @@ Detector Node — Detect source language if not specified.
 
 Uses Unicode heuristic first (fast, no LLM call).
 Falls back to LLM detection only if heuristic returns "unknown".
+Saves detected language to glossary immediately.
 """
 
 from src.models.state import TranslationState
 from src.utils.text import detect_language_heuristic
 from src.services.llm import get_llm
+from src.services.glossary import save_source_language
 from src.services.logger import log_ai_call
 
 
@@ -31,5 +33,8 @@ def detector_node(state: TranslationState) -> dict:
     else:
         log_ai_call("detect_language", result=detected, method="heuristic")
 
-    print(f"  📝 Detected language: {detected}")
+    # Save to glossary immediately for future chapters
+    save_source_language(state["novel_name"], detected)
+
+    print(f"  📝 Language: {detected}")
     return {"source_language": detected}

@@ -114,8 +114,10 @@ uv run translate my-novel -v
 1. Scans `input/{novel}/` for `chapter_*.txt` files
 2. Checks glossary for already-translated chapters
 3. Translates only missing chapters, in order
-4. Saves output to `output/{novel}/chapter_*.txt`
-5. Tracks translated chapters in glossary — re-running skips them
+4. Shows single-line progress: `[3/10] 30% · 45s ch · 120s total`
+5. Saves output to `output/{novel}/chapter_*.txt`
+6. Saves detected language to glossary immediately — re-running skips detection
+7. Tracks translated chapters in glossary — re-running skips them
 
 ## Architecture
 

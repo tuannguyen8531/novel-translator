@@ -36,25 +36,15 @@ def context_node(state: TranslationState) -> dict:
     common_rules_file = RULES_DIR / "common.md"
     if common_rules_file.exists():
         rules_parts.append(common_rules_file.read_text(encoding="utf-8"))
-        print(f"  📜 Loaded rules: common.md")
 
     lang_rules_file = RULES_DIR / f"{language}.md"
     if lang_rules_file.exists():
         rules_parts.append(lang_rules_file.read_text(encoding="utf-8"))
-        print(f"  📜 Loaded rules: {language}.md")
-    else:
-        print(f"  ⚠️  No language-specific rules: {lang_rules_file}")
 
     rules = "\n\n".join(rules_parts)
-    if rules:
-        print(f"  📜 Total rules: {len(rules)} chars")
 
     # 2. Load glossary
     glossary = load_glossary(novel_name)
-    if glossary:
-        print(f"  📖 Loaded glossary: {len(glossary)} terms")
-    else:
-        print(f"  📖 No existing glossary for '{novel_name}'")
 
     # 3. Load recent chapter summaries (last 3 chapters)
     previous_summary = ""
@@ -64,8 +54,6 @@ def context_node(state: TranslationState) -> dict:
         )
         if recent_summaries:
             previous_summary = recent_summaries
-            count = previous_summary.count("Chapter ")
-            print(f"  📋 Loaded {count or 'recent'} chapter summaries for context")
 
     return {
         "source_language": language,
