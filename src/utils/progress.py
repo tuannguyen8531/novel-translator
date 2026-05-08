@@ -22,6 +22,7 @@ class ProgressTracker:
     def __init__(self, total_chapters: int, novel_name: str):
         self.total_chapters = total_chapters
         self.novel_name = novel_name
+        self.current_index = 0
         self.current_chapter = 0
         self.file_size = 0
         self.chapter_start = 0.0
@@ -30,8 +31,9 @@ class ProgressTracker:
         self.failed = 0
         self._last_line = ""
 
-    def start_chapter(self, chapter_num: int, file_size: int = 0):
+    def start_chapter(self, index: int, chapter_num: int, file_size: int = 0):
         """Start tracking a new chapter."""
+        self.current_index = index
         self.current_chapter = chapter_num
         self.file_size = file_size
         self.chapter_start = time.time()
@@ -49,12 +51,13 @@ class ProgressTracker:
         """Render progress line."""
         elapsed = time.time() - self.chapter_start
         overall = time.time() - self.overall_start
-        pct = self.current_chapter / self.total_chapters * 100 if self.total_chapters else 0
+        pct = self.current_index / self.total_chapters * 100 if self.total_chapters else 0
 
         size_str = f"{self.file_size:,} chars" if self.file_size else ""
         line = (
-            f"  {CYAN}[{self.current_chapter}/{self.total_chapters}]{RESET}"
+            f"  {CYAN}[{self.current_index}/{self.total_chapters}]{RESET}"
             f" {pct:.0f}%"
+            f" {DIM}· Ch.{self.current_chapter}{RESET}"
             f" {DIM}· {size_str}{RESET}"
             f" {DIM}· {elapsed:.0f}s ch{RESET}"
             f" {DIM}· {overall:.0f}s total{RESET}"

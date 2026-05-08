@@ -130,12 +130,12 @@ def find_untranslated(novel_name: str, chapters: dict[int, Path]) -> list[int]:
     return [ch for ch in chapters if ch not in translated]
 
 
-def translate_file(input_path: Path, novel_name: str, chapter_number: int, language: str = "") -> tuple[bool, int, float]:
-    """Run the translation pipeline on a file. Returns (success, char_count, elapsed)."""
+def translate_file(input_path: Path, novel_name: str, chapter_number: int, language: str = "") -> tuple[bool, int, float, int]:
+    """Run the translation pipeline on a file. Returns (success, char_count, elapsed, new_terms_count)."""
     import time
     source_text = input_path.read_text(encoding="utf-8")
     if not source_text.strip():
-        return False, 0, 0
+        return False, 0, 0, 0
 
     start = time.time()
     graph = build_graph()
@@ -155,9 +155,10 @@ def translate_file(input_path: Path, novel_name: str, chapter_number: int, langu
     output_file = output_dir / f"chapter_{chapter_number:03d}.txt"
 
     final_text = result.get("final_translation", "")
+    new_terms_count = len(result.get("new_terms", {}))
     output_file.write_text(final_text, encoding="utf-8")
 
-    return True, len(final_text), elapsed
+    return True, len(final_text), elapsed, new_terms_count
 
 
 def main():
@@ -278,65 +279,25 @@ Examples:
     # Translate chapters with progress tracker
     progress = ProgressTracker(total, novel_name)
 
-    for chapter_num in untranslated:
+    for index, chapter_num in enumerate(untranslated, 1):
         chapter_path = chapters[chapter_num]
         file_size = len(chapter_path.read_text(encoding="utf-8"))
 
-        progress.start_chapter(chapter_num, file_size)
+        progress.start_chapter(index, chapter_num, file_size)
 
         try:
-            success, out_chars, elapsed = translate_file(chapter_path, novel_name, chapter_num, language)
+            success, out_chars, elapsed, new_terms_count = translate_file(chapter_path, novel_name, chapter_num, language)
             progress.chapter_done(success)
             if success:
-                print(f"  {GREEN}✓ Ch.{chapter_num}{RESET} {DIM}→ {out_chars:,} chars · {elapsed:.1f}s{RESET}")
+                terms_msg = f" [+ {new_terms_count} terms]" if new_terms_count > 0 else ""
+                print(f"  {GREEN}✓ Ch.{chapter_num}{RESET} {DIM}→ {out_chars:,} chars · {elapsed:.1f}s{terms_msg}{RESET}")
         except Exception as e:
             progress.chapter_done(False)
             print(f"  {RED}✗ Ch.{chapter_num}: {e}{RESET}")
 
     progress.print_summary()
 
-    # Load source language from glossary if not specified
-    language = args.lang
-    if not language:
-        from src.services.glossary import load_source_language
-        language = load_source_language(novel_name)
-        if language:
-            print(f"{DIM}🌐 Language: {language} (from glossary){RESET}")
-        else:
-            print(f"{DIM}🌐 Language: auto-detect{RESET}")
-    else:
-        print(f"{DIM}🌐 Language: {language} (specified){RESET}")
-    print()
 
-    # Translate chapters
-    success_count = 0
-    fail_count = 0
-    overall_start = time.time()
-
-    for i, chapter_num in enumerate(untranslated, 1):
-        chapter_path = chapters[chapter_num]
-        print(f"{CYAN}[{i}/{total}] Chapter {chapter_num}{RESET}")
-
-        try:
-            if translate_file(chapter_path, novel_name, chapter_num, language):
-                success_count += 1
-            else:
-                fail_count += 1
-        except Exception as e:
-            print(f"  {RED}✗ Failed: {e}{RESET}")
-            fail_count += 1
-
-    overall_elapsed = time.time() - overall_start
-
-    print()
-    print(f"{GREEN}{'═' * 54}")
-    print(f"  ✅ Batch complete!")
-    print(f"{'═' * 54}{RESET}")
-    print(f"  {DIM}Translated: {success_count}/{total}{RESET}")
-    if fail_count:
-        print(f"  {RED}Failed: {fail_count}{RESET}")
-    print(f"  {DIM}Total time: {overall_elapsed:.1f}s{RESET}")
-    print()
 
 
 if __name__ == "__main__":
