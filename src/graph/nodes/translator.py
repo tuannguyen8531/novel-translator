@@ -10,7 +10,7 @@ Builds a rich system prompt containing:
 
 from src.models.state import TranslationState
 from src.services.llm import get_llm
-from src.services.glossary import format_glossary_for_prompt
+from src.services.glossary import format_glossary_for_prompt, format_relationships_shorthand
 from src.services.logger import log_ai_call
 
 
@@ -58,6 +58,15 @@ def translator_node(state: TranslationState) -> dict:
     glossary_text = format_glossary_for_prompt(state.get("glossary", {}))
     if glossary_text:
         system_parts.append(f"\n{glossary_text}")
+
+    # Add character relationships (shorthand — only active characters)
+    char_data = state.get("characters", {})
+    relationships_text = format_relationships_shorthand(
+        char_data.get("entities", {}),
+        char_data.get("edges", []),
+    )
+    if relationships_text:
+        system_parts.append(f"\n{relationships_text}")
 
     # Add previous chapter summary for context
     if state.get("previous_summary"):

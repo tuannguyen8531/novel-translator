@@ -8,18 +8,34 @@ Structure:
         "原始术语": "Bản dịch tiếng Việt",
         "李明": "Lý Minh"
     },
+    "source_language": "chinese",
+    "entities": {
+        "李明": {"name_vi": "Lý Minh", "role": "protagonist"}
+    },
+    "edges": [
+        ["李明", "张伟", "friend", 3]
+    ],
     "chapter_summaries": {
         "1": "Summary of chapter 1...",
         "2": "Summary of chapter 2..."
-    },
-    "source_language": "chinese"
+    }
 }
+
+Character schema:
+- entities: dict of original_name -> {name_vi, role}
+  role: protagonist | antagonist | supporting | minor
+- edges: list of [from_orig, to_orig, relationship_type, since_chapter]
+  Each relationship stored ONCE (no bidirectional duplication).
+  Relationship types: mother, father, sibling, friend, enemy, master,
+  disciple, rival, classmate, teacher, romantic interest, etc.
 """
 
 import fcntl
 import json
-import os
+import re
 from pathlib import Path
+
+CJK_RE = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]')
 
 GLOSSARY_DIR = Path("glossary")
 
@@ -82,12 +98,40 @@ def _merge_json_locked(path: Path, updater: callable) -> dict:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
+# ---------------------------------------------------------------------------
+# Terms
+# ---------------------------------------------------------------------------
+
 def load_glossary(novel_name: str) -> dict[str, str]:
     """Load term glossary for a novel. Returns empty dict if not found."""
     path = _glossary_path(novel_name)
     data = _read_json_locked(path)
     return data.get("terms", {})
 
+
+def save_glossary(novel_name: str, terms: dict[str, str]):
+    """Save/merge terms into the novel's glossary (thread-safe)."""
+    path = _glossary_path(novel_name)
+    _merge_json_locked(path, lambda data: {
+        **data,
+        "terms": {**data.get("terms", {}), **terms},
+    })
+
+
+def format_glossary_for_prompt(terms: dict[str, str]) -> str:
+    """Format glossary as a string for inclusion in LLM prompts."""
+    if not terms:
+        return ""
+    lines = ["=== GLOSSARY (use these translations consistently) ==="]
+    for original, translated in terms.items():
+        lines.append(f"  {original} → {translated}")
+    lines.append("=== END GLOSSARY ===")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Source language
+# ---------------------------------------------------------------------------
 
 def load_source_language(novel_name: str) -> str:
     """Load detected source language for a novel. Returns empty string if not found."""
@@ -107,14 +151,9 @@ def save_source_language(novel_name: str, language: str):
     })
 
 
-def save_glossary(novel_name: str, terms: dict[str, str]):
-    """Save/merge terms into the novel's glossary (thread-safe)."""
-    path = _glossary_path(novel_name)
-    _merge_json_locked(path, lambda data: {
-        **data,
-        "terms": {**data.get("terms", {}), **terms},
-    })
-
+# ---------------------------------------------------------------------------
+# Chapter summaries
+# ---------------------------------------------------------------------------
 
 def load_chapter_summary(novel_name: str, chapter_number: int) -> str:
     """Load summary for a specific chapter. Returns empty string if not found."""
@@ -161,12 +200,176 @@ def save_chapter_summary(novel_name: str, chapter_number: int, summary: str):
     })
 
 
-def format_glossary_for_prompt(terms: dict[str, str]) -> str:
-    """Format glossary as a string for inclusion in LLM prompts."""
-    if not terms:
+# ---------------------------------------------------------------------------
+# Characters — Entity + Edge graph
+# ---------------------------------------------------------------------------
+
+def _is_name_boundary(text: str, pos: int) -> bool:
+    """Check if position is a valid CJK/word boundary (not inside a longer word)."""
+    if pos < 0 or pos >= len(text):
+        return True
+    return not CJK_RE.match(text[pos]) and not text[pos].isalnum()
+
+
+def _find_name_in_text(name: str, source_text: str) -> bool:
+    """Check if name appears in text with proper boundaries (no substring false positives)."""
+    escaped = re.escape(name)
+    for m in re.finditer(escaped, source_text):
+        if _is_name_boundary(source_text, m.start() - 1) and _is_name_boundary(source_text, m.end()):
+            return True
+    return False
+
+
+def get_active_context(novel_name: str, source_text: str) -> tuple[dict, list]:
+    """Load only characters and relationships relevant to the current source text.
+
+    Algorithm:
+        1. Scan source_text for known character names (active set) using boundary-aware matching.
+        2. Collect edges where at least one endpoint is in the active set (F1 neighbors).
+        3. Build entity dict for active + F1 characters.
+
+    Returns:
+        (entities, edges) — both filtered to active context only.
+        entities: {orig_name: {"name_vi": str, "role": str}}
+        edges:    [[from, to, rel_type, since_chapter], ...]
+    """
+    data = _read_json_locked(_glossary_path(novel_name))
+    all_entities: dict = data.get("entities", {})
+    all_edges: list = data.get("edges", [])
+
+    if not all_entities:
+        return {}, []
+
+    # Step 1: find which characters appear in source text (boundary-aware)
+    active_names = {name for name in all_entities if _find_name_in_text(name, source_text)}
+
+    if not active_names:
+        return {}, []
+
+    # Step 2: collect relevant edges + F1 neighbors
+    f1_names: set[str] = set()
+    active_edges: list = []
+    for edge in all_edges:
+        if len(edge) < 3:
+            continue
+        from_char, to_char = edge[0], edge[1]
+        if from_char in active_names or to_char in active_names:
+            active_edges.append(edge)
+            f1_names.add(from_char)
+            f1_names.add(to_char)
+
+    # Step 3: build filtered entity map (active + F1)
+    all_relevant = active_names | f1_names
+    active_entities = {
+        name: all_entities[name]
+        for name in all_relevant
+        if name in all_entities
+    }
+
+    return active_entities, active_edges
+
+
+def save_characters_batch(novel_name: str, entities: dict, edges: list, chapter: int = 0):
+    """Save character entities and relationship edges (thread-safe).
+
+    Args:
+        entities: {orig_name: {"name_vi": str, "role": str}}
+        edges:    [[from, to, rel_type]] or [[from, to, rel_type, since_chapter]]
+                  Each relationship should be stored ONCE (no bidirectional duplicates).
+        chapter:  Current chapter number (used as since_chapter fallback).
+    """
+    if not entities and not edges:
+        return
+
+    # Normalize edges to 4-element lists
+    tagged_edges = []
+    for edge in edges:
+        if len(edge) >= 3:
+            since = edge[3] if len(edge) > 3 else chapter
+            tagged_edges.append([edge[0], edge[1], edge[2], since])
+
+    path = _glossary_path(novel_name)
+
+    def updater(data: dict) -> dict:
+        # --- Merge entities ---
+        existing_entities: dict = data.get("entities", {})
+        for name, info in entities.items():
+            if name not in existing_entities:
+                existing_entities[name] = {
+                    "name_vi": info.get("name_vi", ""),
+                    "role": info.get("role", "unknown"),
+                }
+            else:
+                if info.get("name_vi"):
+                    existing_entities[name]["name_vi"] = info["name_vi"]
+                new_role = info.get("role", "")
+                if new_role and new_role != "unknown":
+                    existing_entities[name]["role"] = new_role
+
+        # --- Merge edges (deduplication: treat A→B and B→A as same pair) ---
+        existing_edges: list = data.get("edges", [])
+        # Build index of seen pairs (canonical order doesn't matter; track both)
+        seen_pairs: set[tuple] = set()
+        for e in existing_edges:
+            if len(e) >= 2:
+                seen_pairs.add((e[0], e[1]))
+                seen_pairs.add((e[1], e[0]))  # treat reverse as duplicate
+
+        for edge in tagged_edges:
+            from_char, to_char, rel_type, since = edge
+            if (from_char, to_char) in seen_pairs:
+                # Update type on the existing forward edge if found
+                for e in existing_edges:
+                    if e[0] == from_char and e[1] == to_char:
+                        e[2] = rel_type
+                        break
+            else:
+                # Truly new relationship
+                existing_edges.append([from_char, to_char, rel_type, since])
+                seen_pairs.add((from_char, to_char))
+                seen_pairs.add((to_char, from_char))
+
+        return {**data, "entities": existing_entities, "edges": existing_edges}
+
+    _merge_json_locked(path, updater)
+
+
+def format_relationships_shorthand(entities: dict, edges: list) -> str:
+    """Format active character context as compact shorthand for LLM prompts.
+
+    Outputs:
+        === CHARACTERS ===
+        Roles: Lục Viễn Thu[protagonist], Bạch Thanh Hạ[protagonist]
+        Relations: Tô Tiểu Nhã(mother)->Lục Viễn Thu; Lục Thiên(father)->Lục Viễn Thu
+        === END CHARACTERS ===
+    """
+    if not entities:
         return ""
-    lines = ["=== GLOSSARY (use these translations consistently) ==="]
-    for original, translated in terms.items():
-        lines.append(f"  {original} → {translated}")
-    lines.append("=== END GLOSSARY ===")
+
+    # Build roles line (skip minor/unknown to save tokens)
+    NOTABLE_ROLES = {"protagonist", "antagonist", "supporting"}
+    roles_parts = []
+    for name, info in entities.items():
+        name_vi = info.get("name_vi") or name
+        role = info.get("role", "")
+        if role in NOTABLE_ROLES:
+            roles_parts.append(f"{name_vi}[{role}]")
+
+    # Build relations line
+    rel_parts = []
+    for edge in edges:
+        if len(edge) < 3:
+            continue
+        from_char, to_char, rel_type = edge[0], edge[1], edge[2]
+        from_vi = entities.get(from_char, {}).get("name_vi") or from_char
+        to_vi = entities.get(to_char, {}).get("name_vi") or to_char
+        rel_parts.append(f"{from_vi}({rel_type})->{to_vi}")
+
+    lines = ["=== CHARACTERS ==="]
+    if roles_parts:
+        lines.append("Roles: " + ", ".join(roles_parts))
+    if rel_parts:
+        lines.append("Relations: " + "; ".join(rel_parts))
+    lines.append("=== END CHARACTERS ===")
+
     return "\n".join(lines)

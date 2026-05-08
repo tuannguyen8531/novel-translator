@@ -21,6 +21,7 @@ class TranslationState(TypedDict):
     translation_rules: str              # Rules from rules/{language}.md
     glossary: dict[str, str]            # Term → Translation mapping
     previous_summary: str               # Summary of previous chapter
+    characters: dict                    # {"entities": {orig: {name_vi, role}}, "edges": [[from, to, type, since_ch]]}
 
     # --- Chunk Processing ---
     chunks: list[str]                   # Text split into translatable chunks
@@ -35,6 +36,7 @@ class TranslationState(TypedDict):
 
     # --- Learning Output ---
     new_terms: dict[str, str]           # New glossary terms extracted
+    new_characters: dict                # New entities/edges discovered this chapter
     chapter_summary: str                # Summary for next chapter context
 
     # --- Final Output ---
@@ -56,6 +58,7 @@ def initial_state(
         translation_rules="",
         glossary={},
         previous_summary="",
+        characters={},
         chunks=[],
         current_chunk_index=0,
         translated_chunks=[],
@@ -64,6 +67,7 @@ def initial_state(
         review_feedback="",
         retry_count=0,
         new_terms={},
+        new_characters={},
         chapter_summary="",
         final_translation="",
     )

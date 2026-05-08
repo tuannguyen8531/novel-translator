@@ -12,7 +12,7 @@ import re
 
 from src.models.state import TranslationState
 from src.services.llm import get_llm
-from src.services.glossary import save_glossary, save_chapter_summary, save_source_language
+from src.services.glossary import save_glossary, save_chapter_summary, save_source_language, save_characters_batch
 from src.services.logger import log_ai_call, log_error
 from src.config import config
 
@@ -50,12 +50,34 @@ def learner_node(state: TranslationState) -> dict:
     # Also need source for term extraction
     source_text = state["source_text"]
 
-    # --- 1. Extract new glossary terms ---
+    # --- 1. Extract terms + character relationships (single call) ---
     existing_glossary = state.get("glossary", {})
     existing_terms_str = "\n".join(f"  {k} → {v}" for k, v in existing_glossary.items()) if existing_glossary else "(none)"
 
-    term_system_prompt = f"""You are a linguistic analysis expert. Extract important terms from the novel passage below.
+    existing_characters = state.get("characters", {})
+    existing_entities = existing_characters.get("entities", {})
+    existing_edges = existing_characters.get("edges", [])
+    existing_chars_str = "(none)"
+    if existing_entities:
+        entity_parts = []
+        for name_orig, info in existing_entities.items():
+            name_vi = info.get("name_vi", "")
+            role = info.get("role", "")
+            entity_parts.append(f"  {name_orig}" + (f" ({name_vi})" if name_vi else "") + (f" [{role}]" if role else ""))
+        if existing_edges:
+            edge_parts = []
+            for edge in existing_edges:
+                if len(edge) >= 3:
+                    from_vi = existing_entities.get(edge[0], {}).get("name_vi", edge[0])
+                    to_vi = existing_entities.get(edge[1], {}).get("name_vi", edge[1])
+                    edge_parts.append(f"  {from_vi}({edge[2]})->{to_vi}")
+            existing_chars_str = "Entities:\n" + "\n".join(entity_parts) + "\nRelations:\n" + "\n".join(edge_parts)
+        else:
+            existing_chars_str = "Entities:\n" + "\n".join(entity_parts)
 
+    learn_system_prompt = f"""You are analyzing a novel chapter. Extract important terms AND character relationships.
+
+=== TERMS ===
 STRICT CRITERIA — only include terms that meet ALL of these:
 1. Character names (people, beings with names)
 2. Place names (locations, realms, organizations with names)
@@ -71,35 +93,62 @@ EXCLUDE:
 Existing terms (DO NOT repeat):
 {existing_terms_str}
 
+=== CHARACTERS ===
+Identify characters that appear in this chapter and their relationships to each other.
+
+EXISTING CHARACTERS (update relationships if new ones are discovered):
+{existing_chars_str}
+
+RULES:
+- Only include characters that actually appear or are mentioned in this chapter
+- Relationship types should be specific: mother, father, sibling, friend, enemy, master,
+  disciple, rival, classmate, teacher, romantic interest, crush, etc.
+- Avoid vague relationships like "knows" or "met"
+- Store each relationship ONCE — do NOT add both A→B and B→A for the same pair
+  (e.g. if you add [A, B, "mother"], do NOT also add [B, A, "son"])
+- If a character's role is unclear, use "minor"
+
 Respond with JSON ONLY (no other text):
 {{
     "terms": {{
-        "original term": "Vietnamese translation",
-        ...
+        "original term": "Vietnamese translation"
+    }},
+    "characters": {{
+        "entities": {{
+            "original name": {{
+                "name_vi": "Vietnamese name",
+                "role": "protagonist | antagonist | supporting | minor"
+            }}
+        }},
+        "edges": [
+            ["from_original_name", "to_original_name", "relationship_type"]
+        ]
     }}
 }}"""
 
-    term_user_prompt = f"""=== SOURCE TEXT ({language}) ===
-{source_text[:3000]}
+    learn_user_prompt = f"""=== SOURCE TEXT ({language}) ===
+{source_text[:4000]}
 
 === VIETNAMESE TRANSLATION ===
-{full_translation[:3000]}"""
+{full_translation[:4000]}"""
 
     new_terms = {}
-    term_response = ""
+    new_characters = {}
+    learn_response = ""
     try:
-        term_response = get_llm().generate(term_system_prompt, term_user_prompt, "learn_terms")
+        learn_response = get_llm().generate(learn_system_prompt, learn_user_prompt, "learn")
 
-        json_start = term_response.find("{")
-        json_end = term_response.rfind("}") + 1
+        json_start = learn_response.find("{")
+        json_end = learn_response.rfind("}") + 1
         if json_start >= 0 and json_end > json_start:
-            term_data = json.loads(term_response[json_start:json_end])
+            learn_data = json.loads(learn_response[json_start:json_end])
         else:
-            term_data = json.loads(term_response)
-        new_terms = term_data.get("terms", {})
+            learn_data = json.loads(learn_response)
+        new_terms = learn_data.get("terms", {})
+        new_characters = learn_data.get("characters", {})
     except Exception as e:
-        log_error("Failed to extract terms", e, chapter=chapter_number)
-        print(f"\n  [Warning] Failed to extract terms: {e}")
+        log_error("Failed to extract terms and characters", e, chapter=chapter_number)
+        print(f"\n  [Warning] Failed to extract terms and characters: {e}")
 
     # Filter: only keep terms that appear at least MIN_TERM_FREQUENCY times
     if new_terms:
@@ -108,20 +157,27 @@ Respond with JSON ONLY (no other text):
     if new_terms:
         save_glossary(novel_name, new_terms)
 
-    # Save detected source language for future chapters
+    new_entities = new_characters.get("entities", {})
+    new_edges = new_characters.get("edges", [])
+
+    if new_entities or new_edges:
+        save_characters_batch(novel_name, new_entities, new_edges, chapter=chapter_number)
+        print(f"  📝 Updated {len(new_entities)} character(s), {len(new_edges)} relationship(s)")
+
     save_source_language(novel_name, state["source_language"])
 
     log_ai_call(
-        "learn_terms",
-        system_prompt=term_system_prompt,
-        user_prompt=term_user_prompt,
-        response=term_response,
+        "learn",
+        system_prompt=learn_system_prompt,
+        user_prompt=learn_user_prompt,
+        response=learn_response,
         chapter=chapter_number,
         new_terms_count=len(new_terms),
         terms=new_terms,
+        characters_count=len(new_characters),
     )
 
-    # --- 2. Create chapter summary ---
+    # --- 3. Create chapter summary ---
     if not config.enable_summary:
         summary_response = ""
     else:
@@ -151,6 +207,7 @@ Write in Vietnamese. Output ONLY the summary, nothing else."""
 
     return {
         "new_terms": new_terms,
+        "new_characters": new_characters,
         "chapter_summary": summary_response,
         "final_translation": full_translation,
     }
