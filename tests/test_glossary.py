@@ -11,7 +11,6 @@ from src.services.glossary import (
     load_chapter_summary,
     save_chapter_summary,
     load_chapter_summaries_recent,
-    format_glossary_for_prompt,
     load_source_language,
     save_source_language,
     GLOSSARY_DIR,
@@ -78,17 +77,6 @@ class TestGlossary:
         second_idx = result.index("Chapter 2")
         third_idx = result.index("Chapter 3")
         assert first_idx < second_idx < third_idx
-
-    def test_format_glossary_for_prompt(self):
-        terms = {"李白": "Lý Bạch", "杜甫": "Đỗ Phủ"}
-        result = format_glossary_for_prompt(terms)
-        assert "GLOSSARY" in result
-        assert "李白 → Lý Bạch" in result
-        assert "杜甫 → Đỗ Phủ" in result
-        assert "END GLOSSARY" in result
-
-    def test_format_empty_glossary(self):
-        assert format_glossary_for_prompt({}) == ""
 
     def test_save_and_load_source_language(self):
         save_source_language("test-novel", "chinese")

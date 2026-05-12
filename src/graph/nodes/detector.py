@@ -7,7 +7,7 @@ Saves detected language to glossary immediately.
 """
 
 from src.models.state import TranslationState
-from src.utils.text import detect_language_heuristic
+from src.domain.language import detect_language_heuristic
 from src.services.llm import get_llm
 from src.services.glossary import save_source_language
 from src.services.logger import log_ai_call

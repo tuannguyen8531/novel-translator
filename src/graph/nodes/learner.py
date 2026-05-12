@@ -7,36 +7,13 @@ Runs after all chunks are translated. Responsible for:
 3. Saving both to the glossary JSON file
 """
 
-import re
-
 from src.models.state import TranslationState
 from src.services.llm import get_llm
 from src.services.glossary import save_glossary, save_chapter_summary, save_source_language, save_characters_batch
 from src.services.logger import log_ai_call, log_error
 from src.config import config
+from src.domain.terms import MIN_TERM_FREQUENCY, filter_terms_by_frequency
 from src.utils.json import parse_json_object
-
-# Minimum occurrences in text for a term to qualify for glossary
-MIN_TERM_FREQUENCY = 3
-
-
-def _count_occurrences(text: str, term: str) -> int:
-    """Count case-insensitive occurrences of term in text."""
-    if not term or len(term) < 2:
-        return 0
-    # Escape regex special chars in term
-    escaped = re.escape(term)
-    return len(re.findall(escaped, text, re.IGNORECASE))
-
-
-def _filter_by_frequency(text: str, terms: dict[str, str], min_count: int) -> dict[str, str]:
-    """Keep only terms that appear at least min_count times in the text."""
-    filtered = {}
-    for original, translation in terms.items():
-        count = _count_occurrences(text, original)
-        if count >= min_count:
-            filtered[original] = translation
-    return filtered
 
 
 def learner_node(state: TranslationState) -> dict:
@@ -153,7 +130,7 @@ Respond with JSON ONLY (no other text):
 
     # Filter: only keep terms that appear at least MIN_TERM_FREQUENCY times
     if new_terms:
-        new_terms = _filter_by_frequency(source_text, new_terms, MIN_TERM_FREQUENCY)
+        new_terms = filter_terms_by_frequency(source_text, new_terms, MIN_TERM_FREQUENCY)
 
     if new_terms:
         save_glossary(novel_name, new_terms)

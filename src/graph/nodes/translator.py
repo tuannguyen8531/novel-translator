@@ -10,7 +10,7 @@ Builds a rich system prompt containing:
 
 from src.models.state import TranslationState
 from src.services.llm import get_llm
-from src.services.glossary import format_glossary_for_prompt, format_relationships_shorthand
+from src.domain.glossary import format_glossary_for_prompt, format_relationships_shorthand
 from src.services.logger import log_ai_call
 
 

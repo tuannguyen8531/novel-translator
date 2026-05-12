@@ -1,6 +1,7 @@
-"""Tests for text processing utilities."""
+"""Tests for language detection and chunking domain rules."""
 
-from src.utils.text import detect_language_heuristic, split_into_chunks, _split_sentences
+from src.domain.chunking import split_into_chunks, split_sentences
+from src.domain.language import detect_language_heuristic
 
 
 class TestDetectLanguageHeuristic:
@@ -78,17 +79,17 @@ class TestSplitIntoChunks:
 
 class TestSplitSentences:
     def test_cjk_endings(self):
-        result = _split_sentences("你好。世界！测试？")
+        result = split_sentences("你好。世界！测试？")
         assert len(result) == 3
 
     def test_western_endings(self):
-        result = _split_sentences("Hello. World! Test?")
+        result = split_sentences("Hello. World! Test?")
         assert len(result) == 3
 
     def test_mixed_endings(self):
-        result = _split_sentences("Hello. 你好！Test?")
+        result = split_sentences("Hello. 你好！Test?")
         assert len(result) == 3
 
     def test_no_endings(self):
-        result = _split_sentences("just text no punctuation")
+        result = split_sentences("just text no punctuation")
         assert result == ["just text no punctuation"]

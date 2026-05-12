@@ -15,6 +15,7 @@ from src.services.llm import get_llm
 from src.services.logger import log_ai_call
 from src.config import config
 from src.utils.json import parse_json_object
+from src.domain.quality import has_blocking_issues, post_check_translation
 
 
 def reviewer_node(state: TranslationState) -> dict:
@@ -67,6 +68,13 @@ Respond with JSON ONLY (no other text):
             total_chunks=total_chunks,
         )
 
+    post_issues = post_check_translation(chunk, translation, state.get("glossary", {}))
+    if post_issues:
+        issue_feedback = "Post-check issues: " + "; ".join(issue.message for issue in post_issues)
+        feedback = f"{feedback}\n{issue_feedback}" if feedback else issue_feedback
+        if has_blocking_issues(post_issues):
+            score = min(score, config.review_threshold - 0.1)
+
     log_ai_call(
         "review",
         system_prompt=system_prompt,
@@ -76,6 +84,7 @@ Respond with JSON ONLY (no other text):
         total_chunks=total_chunks,
         score=score,
         feedback=feedback,
+        post_check_issues=[issue.code for issue in post_issues],
     )
 
     return {

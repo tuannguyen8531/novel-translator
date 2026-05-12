@@ -4,7 +4,7 @@ Chunker Node — Split source text into translatable chunks.
 
 from src.models.state import TranslationState
 from src.config import config
-from src.utils.text import split_into_chunks
+from src.domain.chunking import split_into_chunks
 
 
 def chunker_node(state: TranslationState) -> dict:

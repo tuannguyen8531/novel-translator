@@ -7,7 +7,7 @@ CLI tool for translating web novel chapters from Chinese/Korean/Japanese to Viet
 - **Multi-provider support**: Ollama (local), Gemini, OpenRouter
 - **Auto language detection**: Unicode heuristic with LLM fallback
 - **Context-aware translation**: Per-novel glossary + chapter summaries maintain consistency
-- **Quality review loop**: LLM scores translations, retries below threshold
+- **Quality review loop**: LLM scores translations, deterministic checks catch mechanical issues, retries below threshold
 - **Language-specific rules**: Honorifics, genre terms (xianxia, murim, isekai, regression)
 - **Chunked processing**: Paragraph-aware splitting with overlap for context continuity
 
@@ -114,12 +114,12 @@ uv run translate my-novel -v
 ### How it works
 
 1. Scans `input/{novel}/` for `chapter_*.txt` files
-2. Checks glossary for already-translated chapters
+2. Checks `output/{novel}/` for already-translated chapters
 3. Translates only missing chapters, in order
 4. Shows single-line progress: `[3/10] 30% · 45s ch · 120s total`
 5. Saves output to `output/{novel}/chapter_*.txt`
 6. Saves detected language to glossary immediately — re-running skips detection
-7. Tracks translated chapters in glossary — re-running skips them
+7. Updates glossary memory with detected language, terms, characters, relationships, and summaries
 
 ## Architecture
 
@@ -135,8 +135,8 @@ detect → context → chunk → translate → review → [retry loop] → accep
 | `context` | Load rules, glossary, last 3 chapter summaries |
 | `chunk` | Split text by paragraphs/sentences with overlap |
 | `translate` | LLM translation with rules + glossary + context |
-| `review` | LLM scores translation (0-1), retries if below threshold |
-| `learn` | Extract new terms, generate chapter summary, save to glossary |
+| `review` | LLM scores translation (0-1), applies deterministic quality checks, retries if below threshold |
+| `learn` | Extract new terms, character memory, chapter summary, save to glossary |
 
 ## Project Structure
 
@@ -147,6 +147,12 @@ detect → context → chunk → translate → review → [retry loop] → accep
 │   ├── config.py        # Environment-based configuration with validation
 │   ├── models/
 │   │   └── state.py     # LangGraph TypedDict state
+│   ├── domain/          # Pure translation-domain rules (no IO/LLM)
+│   │   ├── chunking.py  # Paragraph/sentence chunking with overlap
+│   │   ├── glossary.py  # Glossary formatting, character context, merge rules
+│   │   ├── language.py  # Unicode language detection heuristic
+│   │   ├── quality.py   # Deterministic post-translation quality checks
+│   │   └── terms.py     # Glossary term frequency filtering
 │   ├── graph/
 │   │   ├── builder.py   # Pipeline assembly
 │   │   └── nodes/       # Individual pipeline nodes
@@ -165,12 +171,12 @@ detect → context → chunk → translate → review → [retry loop] → accep
 │   │   │   ├── ollama.py
 │   │   │   ├── gemini.py
 │   │   │   └── openrouter.py
-│   │   ├── glossary.py  # Per-novel glossary management
+│   │   ├── glossary.py  # JSON persistence for per-novel glossary/memory
 │   │   └── logger.py    # AI call logging
 │   └── utils/
 │       ├── display.py   # ANSI colors, banner, provider check
-│       ├── progress.py  # Batch progress tracker
-│       └── text.py      # Language detection, chunking
+│       ├── json.py      # JSON object parsing helpers
+│       └── progress.py  # Batch progress tracker
 ├── rules/               # Translation rules (common + per-language)
 ├── tests/               # Test suite
 ├── glossary/            # Auto-generated per-novel glossaries
