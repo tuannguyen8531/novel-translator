@@ -90,4 +90,5 @@ Respond with JSON ONLY (no other text):
     return {
         "review_score": score,
         "review_feedback": feedback,
+        "post_check_issues": [issue.code for issue in post_issues],
     }

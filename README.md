@@ -92,6 +92,12 @@ uv run translate my-novel -p gemini -r -s
 # Translate a range of chapters
 uv run translate my-novel --start 5 --to 10
 
+# Resume chapter-level progress after an interrupted run
+uv run translate my-novel --resume
+
+# Retry chapters recorded as failed
+uv run translate my-novel --failed-only
+
 # Verbose mode (print AI requests/responses)
 uv run translate my-novel -v
 ```
@@ -110,6 +116,32 @@ uv run translate my-novel -v
 | `--to N` | Stop at chapter N (0 = all) |
 | `--force` | Re-translate already translated chapters |
 | `--dry-run` | List chapters to translate without running |
+| `--resume` | Skip chapters marked completed in `.progress/{novel}.json` |
+| `--failed-only` | Translate only chapters marked failed in `.progress/{novel}.json` |
+
+### Glossary CLI
+
+Manage per-novel glossary memory without calling an LLM:
+
+```bash
+# List glossary terms
+uv run translate glossary list my-novel
+
+# Add or update a term
+uv run translate glossary add my-novel 李明 "Lý Minh"
+
+# Remove a term
+uv run translate glossary remove my-novel 李明
+
+# Export full glossary JSON
+uv run translate glossary export my-novel
+
+# List character memory
+uv run translate glossary characters my-novel
+
+# Set a character pronoun
+uv run translate glossary pronoun my-novel 李明 "cậu"
+```
 
 ### How it works
 
@@ -120,6 +152,8 @@ uv run translate my-novel -v
 5. Saves output to `output/{novel}/chapter_*.txt`
 6. Saves detected language to glossary immediately — re-running skips detection
 7. Updates glossary memory with detected language, terms, characters, relationships, and summaries
+8. Writes chapter quality reports to `reports/{novel}/chapter_*.json`
+9. Tracks completed/failed chapters in `.progress/{novel}.json`
 
 ## Architecture
 
@@ -182,6 +216,8 @@ detect → context → chunk → translate → review → [retry loop] → accep
 ├── glossary/            # Auto-generated per-novel glossaries
 ├── input/               # Place source chapters here
 ├── output/              # Translated chapters saved here
+├── reports/             # Per-chapter quality reports
+├── .progress/           # Chapter-level completed/failed state
 └── logs/                # AI request/response logs
 ```
 

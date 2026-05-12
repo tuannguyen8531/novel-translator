@@ -33,6 +33,8 @@ class TranslationState(TypedDict):
     review_score: float                 # Quality score (0.0 - 1.0)
     review_feedback: str                # What to improve
     retry_count: int                    # Current retry count for this chunk
+    post_check_issues: list[str]        # Deterministic quality issue codes
+    quality_reports: list[dict]         # Per-accepted-chunk quality records
 
     # --- Learning Output ---
     new_terms: dict[str, str]           # New glossary terms extracted
@@ -66,6 +68,8 @@ def initial_state(
         review_score=0.0,
         review_feedback="",
         retry_count=0,
+        post_check_issues=[],
+        quality_reports=[],
         new_terms={},
         new_characters={},
         chapter_summary="",

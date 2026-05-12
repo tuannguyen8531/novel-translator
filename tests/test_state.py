@@ -18,7 +18,8 @@ class TestInitialState:
             "translation_rules", "glossary", "previous_summary",
             "chunks", "current_chunk_index", "translated_chunks",
             "current_translation", "review_score", "review_feedback",
-            "retry_count", "new_terms", "chapter_summary", "final_translation",
+            "retry_count", "post_check_issues", "quality_reports",
+            "new_terms", "chapter_summary", "final_translation",
         ]
         for field in required_fields:
             assert field in state
@@ -52,6 +53,8 @@ class TestInitialState:
         assert state["review_score"] == 0.0
         assert state["review_feedback"] == ""
         assert state["retry_count"] == 0
+        assert state["post_check_issues"] == []
+        assert state["quality_reports"] == []
         assert state["new_terms"] == {}
         assert state["chapter_summary"] == ""
         assert state["final_translation"] == ""

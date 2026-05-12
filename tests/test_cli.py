@@ -1,6 +1,7 @@
 """Tests for CLI input path parsing and chapter scanning."""
 
 import os
+import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -8,7 +9,14 @@ from unittest.mock import patch
 import pytest
 
 from main import parse_input_path
-from translate import scan_chapters, find_untranslated
+from translate import (
+    load_progress,
+    main as translate_main,
+    save_progress,
+    scan_chapters,
+    find_untranslated,
+    translate_file,
+)
 
 
 class TestParseInputPath:
@@ -157,3 +165,119 @@ class TestFindUntranslated:
         with patch("translate.OUTPUT_DIR", self.base / "output"):
             result = find_untranslated("my-novel", chapters)
         assert result == []
+
+
+class TestDryRun:
+    def setup_method(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp_dir.name)
+        input_dir = self.base / "input" / "my-novel"
+        input_dir.mkdir(parents=True)
+        (input_dir / "chapter_1.txt").write_text("source", encoding="utf-8")
+
+    def teardown_method(self):
+        self.temp_dir.cleanup()
+
+    def test_dry_run_does_not_check_provider(self, capsys):
+        with (
+            patch("sys.argv", ["translate", "my-novel", "--dry-run"]),
+            patch("translate.INPUT_DIR", self.base / "input"),
+            patch("translate.OUTPUT_DIR", self.base / "output"),
+            patch("translate.print_banner"),
+            patch("translate.check_provider") as mock_check_provider,
+        ):
+            translate_main()
+
+        mock_check_provider.assert_not_called()
+        output = capsys.readouterr().out
+        assert "1 chapters total" in output
+        assert "1 would be translated" in output
+
+
+class TestProgressState:
+    def setup_method(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp_dir.name)
+
+    def teardown_method(self):
+        self.temp_dir.cleanup()
+
+    def test_save_and_load_progress_normalizes_lists(self):
+        with patch("translate.PROGRESS_DIR", self.base / ".progress"):
+            save_progress("my-novel", {"completed": [2, 1, 2], "failed": [3, 3]})
+            assert load_progress("my-novel") == {"completed": [1, 2], "failed": [3]}
+
+
+class TestQualityReport:
+    def setup_method(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp_dir.name)
+        self.input_path = self.base / "chapter_1.txt"
+        self.input_path.write_text("source", encoding="utf-8")
+
+    def teardown_method(self):
+        self.temp_dir.cleanup()
+
+    def test_translate_file_writes_quality_report(self):
+        class FakeGraph:
+            def invoke(self, state):
+                return {
+                    "final_translation": "translated",
+                    "new_terms": {"李白": "Lý Bạch"},
+                    "new_characters": {"entities": {"李白": {}}},
+                    "quality_reports": [{
+                        "chunk_index": 0,
+                        "score": 0.9,
+                        "feedback": "Good",
+                        "post_check_issues": [],
+                        "retry_count": 0,
+                    }],
+                }
+
+        with (
+            patch("translate.OUTPUT_DIR", self.base / "output"),
+            patch("translate.REPORT_DIR", self.base / "reports"),
+        ):
+            success, out_chars, elapsed, new_terms_count = translate_file(
+                self.input_path,
+                "my-novel",
+                1,
+                "chinese",
+                graph=FakeGraph(),
+            )
+
+        assert success
+        assert out_chars == len("translated")
+        assert elapsed >= 0
+        assert new_terms_count == 1
+
+        report = json.loads((self.base / "reports" / "my-novel" / "chapter_001.json").read_text(encoding="utf-8"))
+        assert report["chapter"] == 1
+        assert report["new_terms_count"] == 1
+        assert report["new_characters_count"] == 1
+        assert report["chunks"][0]["score"] == 0.9
+
+
+class TestGlossaryCli:
+    def setup_method(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp_dir.name)
+
+    def teardown_method(self):
+        self.temp_dir.cleanup()
+
+    def test_glossary_add_and_list(self, capsys):
+        with (
+            patch("sys.argv", ["translate", "glossary", "add", "my-novel", "李白", "Lý Bạch"]),
+            patch("src.services.glossary.GLOSSARY_DIR", self.base / "glossary"),
+        ):
+            translate_main()
+
+        with (
+            patch("sys.argv", ["translate", "glossary", "list", "my-novel"]),
+            patch("src.services.glossary.GLOSSARY_DIR", self.base / "glossary"),
+        ):
+            translate_main()
+
+        output = capsys.readouterr().out
+        assert "李白\tLý Bạch" in output

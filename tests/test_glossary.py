@@ -6,8 +6,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.services.glossary import (
+    load_glossary_data,
     load_glossary,
+    remove_glossary_term,
     save_glossary,
+    save_character_pronoun,
+    save_characters_batch,
     load_chapter_summary,
     save_chapter_summary,
     load_chapter_summaries_recent,
@@ -31,6 +35,7 @@ class TestGlossary:
         save_glossary("test-novel", {"李白": "Lý Bạch"})
         result = load_glossary("test-novel")
         assert result == {"李白": "Lý Bạch"}
+        assert load_glossary_data("test-novel")["terms"] == {"李白": "Lý Bạch"}
 
     def test_merge_glossary(self):
         save_glossary("test-novel", {"李白": "Lý Bạch"})
@@ -47,6 +52,29 @@ class TestGlossary:
     def test_load_nonexistent(self):
         result = load_glossary("nonexistent")
         assert result == {}
+
+    def test_remove_glossary_term(self):
+        save_glossary("test-novel", {"李白": "Lý Bạch", "杜甫": "Đỗ Phủ"})
+
+        assert remove_glossary_term("test-novel", "李白")
+        assert load_glossary("test-novel") == {"杜甫": "Đỗ Phủ"}
+
+    def test_remove_missing_glossary_term(self):
+        assert not remove_glossary_term("test-novel", "missing")
+
+    def test_save_character_pronoun(self):
+        save_characters_batch(
+            "test-novel",
+            {"李白": {"name_vi": "Lý Bạch", "role": "supporting", "pronoun": ""}},
+            [],
+        )
+
+        assert save_character_pronoun("test-novel", "李白", "ông")
+        data = load_glossary_data("test-novel")
+        assert data["entities"]["李白"]["pronoun"] == "ông"
+
+    def test_save_character_pronoun_missing_character(self):
+        assert not save_character_pronoun("test-novel", "missing", "ông")
 
     def test_save_and_load_chapter_summary(self):
         save_chapter_summary("test-novel", 1, "Chapter 1 summary")

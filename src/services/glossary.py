@@ -77,6 +77,11 @@ def _write_json_locked(path: Path, data: dict):
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
+def load_glossary_data(novel_name: str) -> dict:
+    """Load the full glossary JSON data for a novel."""
+    return _read_json_locked(_glossary_path(novel_name))
+
+
 def _merge_json_locked(path: Path, updater: callable) -> dict:
     """Atomically read-modify-write JSON with exclusive lock.
 
@@ -120,6 +125,42 @@ def save_glossary(novel_name: str, terms: dict[str, str]):
         **data,
         "terms": {**data.get("terms", {}), **terms},
     })
+
+
+def remove_glossary_term(novel_name: str, original: str) -> bool:
+    """Remove a glossary term. Returns True if the term existed."""
+    path = _glossary_path(novel_name)
+    removed = False
+
+    def updater(data: dict) -> dict:
+        nonlocal removed
+        terms = dict(data.get("terms", {}))
+        removed = original in terms
+        terms.pop(original, None)
+        return {**data, "terms": terms}
+
+    _merge_json_locked(path, updater)
+    return removed
+
+
+def save_character_pronoun(novel_name: str, original_name: str, pronoun: str) -> bool:
+    """Set a character pronoun. Returns True if the character existed."""
+    path = _glossary_path(novel_name)
+    found = False
+
+    def updater(data: dict) -> dict:
+        nonlocal found
+        entities = dict(data.get("entities", {}))
+        if original_name not in entities:
+            return data
+        info = dict(entities[original_name])
+        info["pronoun"] = pronoun
+        entities[original_name] = info
+        found = True
+        return {**data, "entities": entities}
+
+    _merge_json_locked(path, updater)
+    return found
 
 
 # ---------------------------------------------------------------------------

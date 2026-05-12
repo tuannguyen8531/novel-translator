@@ -47,6 +47,15 @@ def _accept_chunk(state: TranslationState) -> dict:
     translated_chunks = list(state["translated_chunks"])
     translated_chunks.append(state["current_translation"])
 
+    quality_reports = list(state.get("quality_reports", []))
+    quality_reports.append({
+        "chunk_index": state["current_chunk_index"],
+        "score": state.get("review_score", 0.0),
+        "feedback": state.get("review_feedback", ""),
+        "post_check_issues": state.get("post_check_issues", []),
+        "retry_count": state.get("retry_count", 0),
+    })
+
     next_index = state["current_chunk_index"] + 1
 
     return {
@@ -54,6 +63,8 @@ def _accept_chunk(state: TranslationState) -> dict:
         "current_chunk_index": next_index,
         "retry_count": 0,
         "review_feedback": "",
+        "post_check_issues": [],
+        "quality_reports": quality_reports,
     }
 
 

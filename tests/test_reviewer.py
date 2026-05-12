@@ -20,6 +20,7 @@ def test_reviewer_keeps_passing_score_when_post_check_is_clean():
 
     assert result["review_score"] == 0.9
     assert result["review_feedback"] == "Good"
+    assert result["post_check_issues"] == []
 
 
 def test_reviewer_forces_retry_on_blocking_post_check_issue():
@@ -40,3 +41,4 @@ def test_reviewer_forces_retry_on_blocking_post_check_issue():
 
     assert result["review_score"] == 0.6
     assert "source-language characters" in result["review_feedback"]
+    assert result["post_check_issues"] == ["contains_source_language_chars"]

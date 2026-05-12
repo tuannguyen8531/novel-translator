@@ -57,6 +57,33 @@ class TestAcceptChunk:
         assert result["current_chunk_index"] == 2
         assert result["retry_count"] == 0
         assert result["review_feedback"] == ""
+        assert result["quality_reports"] == [{
+            "chunk_index": 1,
+            "score": 0.0,
+            "feedback": "",
+            "post_check_issues": [],
+            "retry_count": 0,
+        }]
+
+    def test_accepts_quality_report(self):
+        state = initial_state("text", "chinese", "novel", 1)
+        state["translated_chunks"] = []
+        state["current_translation"] = "chunk"
+        state["current_chunk_index"] = 0
+        state["review_score"] = 0.8
+        state["review_feedback"] = "Good"
+        state["post_check_issues"] = ["missing_glossary_term"]
+        state["retry_count"] = 1
+
+        result = _accept_chunk(state)
+
+        assert result["quality_reports"] == [{
+            "chunk_index": 0,
+            "score": 0.8,
+            "feedback": "Good",
+            "post_check_issues": ["missing_glossary_term"],
+            "retry_count": 1,
+        }]
 
 
 class TestIncrementRetry:
