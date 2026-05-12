@@ -27,13 +27,10 @@ def detect_language_heuristic(text: str) -> str:
         total_meaningful += 1
         cp = ord(char)
 
-        # Korean Hangul
         if (0xAC00 <= cp <= 0xD7AF) or (0x1100 <= cp <= 0x11FF) or (0x3130 <= cp <= 0x318F):
             hangul_count += 1
-        # Japanese Hiragana / Katakana
         elif (0x3040 <= cp <= 0x309F) or (0x30A0 <= cp <= 0x30FF):
             kana_count += 1
-        # CJK Ideographs (shared by Chinese and Japanese)
         elif 0x4E00 <= cp <= 0x9FFF:
             cjk_count += 1
 
@@ -44,13 +41,10 @@ def detect_language_heuristic(text: str) -> str:
     kana_ratio = kana_count / total_meaningful
     cjk_ratio = cjk_count / total_meaningful
 
-    # Korean if any significant Hangul presence
     if hangul_ratio > 0.15:
         return "korean"
-    # Japanese: kana is unique to Japanese — even small ratio is strong signal
     if kana_ratio > 0.05:
         return "japanese"
-    # Chinese if significant CJK without kana
     if cjk_ratio > 0.3:
         return "chinese"
 

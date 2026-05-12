@@ -9,92 +9,29 @@ Usage:
 
 import argparse
 import re
+import signal
 import sys
-from pathlib import Path
 import time
+from pathlib import Path
 
 from src.config import config
 from src.services.logger import log_error
 from src.graph.builder import build_graph
 from src.models.state import initial_state
 from src.utils.progress import ProgressTracker
-
-# ANSI colors
-RESET = "\033[0m"
-BOLD = "\033[1m"
-DIM = "\033[2m"
-CYAN = "\033[36m"
-GREEN = "\033[32m"
-YELLOW = "\033[33m"
-RED = "\033[31m"
-MAGENTA = "\033[35m"
+from src.utils.display import print_banner, check_provider, RED, GREEN, YELLOW, DIM, RESET
 
 INPUT_DIR = Path("input")
+OUTPUT_DIR = Path("output")
+
+_shutdown_requested = False
+_graph = None
 
 
-def print_banner():
-    """Print the application banner."""
-    print(f"""
-{CYAN}╔══════════════════════════════════════════════════════╗
-║         📚  Novel Translator  📚                     ║
-║    Chinese / Korean / Japanese → Vietnamese          ║
-╚══════════════════════════════════════════════════════╝{RESET}
-{DIM}Provider: {config.llm_provider} · Model: {_get_model_name()} · Temp: {config.translation_temperature}{RESET}
-""")
-
-
-def _get_model_name() -> str:
-    """Get the current model name based on provider."""
-    if config.llm_provider == "ollama":
-        return config.ollama_model
-    elif config.llm_provider == "gemini":
-        return config.gemini_model
-    elif config.llm_provider == "openrouter":
-        return config.openrouter_model
-    return "unknown"
-
-
-def check_provider():
-    """Verify the configured LLM provider is accessible."""
-    provider = config.llm_provider
-
-    if provider == "ollama":
-        import httpx
-        try:
-            resp = httpx.get(f"{config.ollama_base_url}/api/tags", timeout=5.0)
-            resp.raise_for_status()
-            models = [m["name"] for m in resp.json().get("models", [])]
-            if config.ollama_model not in models:
-                model_base = config.ollama_model.split(":")[0]
-                matching = [m for m in models if m.startswith(model_base)]
-                if not matching:
-                    print(f"{YELLOW}⚠ Model '{config.ollama_model}' not found. Available: {', '.join(models)}")
-                    print(f"  Run: ollama pull {config.ollama_model}{RESET}")
-                    return False
-            print(f"{GREEN}✓ Ollama connected. Model: {config.ollama_model}{RESET}")
-            return True
-        except Exception:
-            print(f"{RED}✗ Cannot connect to Ollama at {config.ollama_base_url}")
-            print(f"  Make sure Ollama is running: ollama serve{RESET}")
-            return False
-
-    elif provider == "gemini":
-        if not config.gemini_api_key:
-            print(f"{RED}✗ GEMINI_API_KEY not set in .env{RESET}")
-            return False
-        print(f"{GREEN}✓ Gemini API configured. Model: {config.gemini_model}{RESET}")
-        return True
-
-    elif provider == "openrouter":
-        if not config.openrouter_api_key:
-            print(f"{RED}✗ OPENROUTER_API_KEY not set in .env{RESET}")
-            return False
-        print(f"{GREEN}✓ OpenRouter API configured. Model: {config.openrouter_model}{RESET}")
-        return True
-
-    else:
-        print(f"{RED}✗ Unknown provider: {provider}{RESET}")
-        return False
+def _signal_handler(signum, frame) -> None:
+    global _shutdown_requested
+    _shutdown_requested = True
+    print(f"\n{YELLOW}⚠ Shutting down gracefully...{DIM}")
 
 
 def scan_chapters(novel_name: str) -> dict[int, Path]:
@@ -119,9 +56,12 @@ def scan_chapters(novel_name: str) -> dict[int, Path]:
     return dict(sorted(chapters.items()))
 
 
-def find_untranslated(novel_name: str, chapters: dict[int, Path]) -> list[int]:
+def find_untranslated(novel_name: str, chapters: dict[int, Path], force: bool = False) -> list[int]:
     """Find chapters that exist in input but haven't been translated yet."""
-    output_dir = Path("output") / novel_name
+    if force:
+        return sorted(chapters.keys())
+
+    output_dir = OUTPUT_DIR / novel_name
     translated = set()
     if output_dir.exists():
         for f in output_dir.iterdir():
@@ -131,15 +71,16 @@ def find_untranslated(novel_name: str, chapters: dict[int, Path]) -> list[int]:
     return [ch for ch in chapters if ch not in translated]
 
 
-def translate_file(input_path: Path, novel_name: str, chapter_number: int, language: str = "") -> tuple[bool, int, float, int]:
+def translate_file(input_path: Path, novel_name: str, chapter_number: int, language: str = "", graph=None) -> tuple[bool, int, float, int]:
     """Run the translation pipeline on a file. Returns (success, char_count, elapsed, new_terms_count)."""
-    import time
     source_text = input_path.read_text(encoding="utf-8")
     if not source_text.strip():
         return False, 0, 0, 0
 
+    if graph is None:
+        graph = build_graph()
+
     start = time.time()
-    graph = build_graph()
 
     result = graph.invoke(initial_state(
         source_text=source_text,
@@ -150,8 +91,7 @@ def translate_file(input_path: Path, novel_name: str, chapter_number: int, langu
 
     elapsed = time.time() - start
 
-    # Save output
-    output_dir = Path("output") / novel_name
+    output_dir = OUTPUT_DIR / novel_name
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"chapter_{chapter_number:03d}.txt"
 
@@ -162,7 +102,9 @@ def translate_file(input_path: Path, novel_name: str, chapter_number: int, langu
     return True, len(final_text), elapsed, new_terms_count
 
 
-def main():
+def main() -> None:
+    global _graph
+
     parser = argparse.ArgumentParser(
         description="📚 Novel Translator — Batch translate chapters",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -205,7 +147,7 @@ Examples:
         help="Print full AI request/response to console",
     )
     parser.add_argument(
-        "--from",
+        "--start",
         dest="start_chapter",
         type=int,
         default=0,
@@ -218,12 +160,21 @@ Examples:
         default=0,
         help="Stop at this chapter number (0 = all)",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-translate already translated chapters",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="List chapters to translate without actually translating",
+    )
 
     args = parser.parse_args()
 
     novel_name = args.novel
 
-    # Apply overrides
     if args.provider:
         config.llm_provider = args.provider
     if args.review:
@@ -235,21 +186,19 @@ Examples:
         from src.services.logger import set_verbose
         set_verbose(True)
 
-    print_banner()
+    print_banner(config)
 
-    if not check_provider():
+    if not check_provider(config):
         sys.exit(1)
 
-    # Scan and find untranslated chapters
     chapters = scan_chapters(novel_name)
     if not chapters:
         print(f"{RED}✗ No chapter files found in input/{novel_name}/{RESET}")
         print(f"  Expected format: input/{novel_name}/chapter_1.txt{RESET}")
         sys.exit(1)
 
-    untranslated = find_untranslated(novel_name, chapters)
+    untranslated = find_untranslated(novel_name, chapters, force=args.force)
 
-    # Apply range filters
     if args.start_chapter > 0:
         untranslated = [ch for ch in untranslated if ch >= args.start_chapter]
     if args.end_chapter > 0:
@@ -259,12 +208,16 @@ Examples:
         print(f"{GREEN}✓ All {len(chapters)} chapters already translated.{RESET}")
         return
 
+    if args.dry_run:
+        print(f"{DIM}📕 {novel_name}: {len(chapters)} chapters total, {len(untranslated)} would be translated{RESET}")
+        print(f"{DIM}   Chapters: {', '.join(str(c) for c in untranslated)}{RESET}")
+        return
+
     total = len(untranslated)
     print(f"{DIM}📕 {novel_name}: {len(chapters)} chapters found, {total} to translate{RESET}")
     print(f"{DIM}   Chapters: {untranslated[0]}-{untranslated[-1]}{RESET}")
     print()
 
-    # Load source language from glossary if not specified
     language = args.lang
     if not language:
         from src.services.glossary import load_source_language
@@ -277,17 +230,25 @@ Examples:
         print(f"{DIM}🌐 Language: {language} (specified){RESET}")
     print()
 
-    # Translate chapters with progress tracker
+    signal.signal(signal.SIGINT, _signal_handler)
+
+    _graph = build_graph()
     progress = ProgressTracker(total, novel_name)
 
     for index, chapter_num in enumerate(untranslated, 1):
+        if _shutdown_requested:
+            print(f"\n{YELLOW}⚠ Interrupted at chapter {chapter_num}. Progress saved.{RESET}")
+            break
+
         chapter_path = chapters[chapter_num]
         file_size = len(chapter_path.read_text(encoding="utf-8"))
 
         progress.start_chapter(index, chapter_num, file_size)
 
         try:
-            success, out_chars, elapsed, new_terms_count = translate_file(chapter_path, novel_name, chapter_num, language)
+            success, out_chars, elapsed, new_terms_count = translate_file(
+                chapter_path, novel_name, chapter_num, language, graph=_graph
+            )
             progress.chapter_done(success)
             if success:
                 terms_msg = f" [+ {new_terms_count} terms]" if new_terms_count > 0 else ""
@@ -300,13 +261,10 @@ Examples:
     progress.print_summary()
 
 
-
-
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
         log_error("Top-level execution error", e)
         print(f"\n[Error] {e}")
-        import sys
         sys.exit(1)

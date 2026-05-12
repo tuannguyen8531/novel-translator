@@ -7,7 +7,6 @@ Runs after all chunks are translated. Responsible for:
 3. Saving both to the glossary JSON file
 """
 
-import json
 import re
 
 from src.models.state import TranslationState
@@ -15,6 +14,7 @@ from src.services.llm import get_llm
 from src.services.glossary import save_glossary, save_chapter_summary, save_source_language, save_characters_batch
 from src.services.logger import log_ai_call, log_error
 from src.config import config
+from src.utils.json import parse_json_object
 
 # Minimum occurrences in text for a term to qualify for glossary
 MIN_TERM_FREQUENCY = 3
@@ -144,12 +144,7 @@ Respond with JSON ONLY (no other text):
     try:
         learn_response = get_llm().generate(learn_system_prompt, learn_user_prompt, "learn")
 
-        json_start = learn_response.find("{")
-        json_end = learn_response.rfind("}") + 1
-        if json_start >= 0 and json_end > json_start:
-            learn_data = json.loads(learn_response[json_start:json_end])
-        else:
-            learn_data = json.loads(learn_response)
+        learn_data = parse_json_object(learn_response)
         new_terms = learn_data.get("terms", {})
         new_characters = learn_data.get("characters", {})
     except Exception as e:
@@ -183,7 +178,7 @@ Respond with JSON ONLY (no other text):
         characters_count=len(new_characters),
     )
 
-    # --- 3. Create chapter summary ---
+    # --- 2. Create chapter summary ---
     if not config.enable_summary:
         summary_response = ""
     else:

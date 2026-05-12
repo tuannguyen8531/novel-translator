@@ -14,6 +14,7 @@ from src.models.state import TranslationState
 from src.services.llm import get_llm
 from src.services.logger import log_ai_call
 from src.config import config
+from src.utils.json import parse_json_object
 
 
 def reviewer_node(state: TranslationState) -> dict:
@@ -50,13 +51,7 @@ Respond with JSON ONLY (no other text):
 
     # Parse JSON response
     try:
-        json_start = response.find("{")
-        json_end = response.rfind("}") + 1
-        if json_start >= 0 and json_end > json_start:
-            review_data = json.loads(response[json_start:json_end])
-        else:
-            review_data = json.loads(response)
-
+        review_data = parse_json_object(response)
         score = float(review_data.get("score", 0.8))
         feedback = review_data.get("feedback", "")
     except (json.JSONDecodeError, ValueError) as e:

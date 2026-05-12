@@ -63,7 +63,7 @@ class TestConfig:
         with patch.dict(os.environ, {}, clear=True):
             with patch("src.config.load_dotenv"):
                 config = Config()
-                assert config.fallback_provider == "ollama"
+                assert config.fallback_provider == ""
 
     def test_fallback_provider_from_env(self):
         with patch.dict(os.environ, {"FALLBACK_PROVIDER": "gemini"}, clear=True):

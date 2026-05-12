@@ -4,7 +4,7 @@ Loads settings from .env file.
 """
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
@@ -40,6 +40,19 @@ class Config:
     max_retries: int = 2
     enable_review: bool = False
     enable_summary: bool = False
+
+    def __post_init__(self) -> None:
+        """Validate configuration values."""
+        if not 0.0 <= self.translation_temperature <= 1.0:
+            raise ValueError(f"translation_temperature must be 0-1, got {self.translation_temperature}")
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError(f"chunk_overlap ({self.chunk_overlap}) must be less than chunk_size ({self.chunk_size})")
+        if not 0.0 <= self.review_threshold <= 1.0:
+            raise ValueError(f"review_threshold must be 0-1, got {self.review_threshold}")
+        if self.max_retries < 0:
+            raise ValueError(f"max_retries must be >= 0, got {self.max_retries}")
+        if self.translation_max_tokens < 1:
+            raise ValueError(f"translation_max_tokens must be >= 1, got {self.translation_max_tokens}")
 
     @classmethod
     def from_env(cls) -> "Config":

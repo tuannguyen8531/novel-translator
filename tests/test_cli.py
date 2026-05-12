@@ -135,7 +135,7 @@ class TestFindUntranslated:
         chapters = {1: self.base / "input/my-novel/chapter_1.txt",
                     2: self.base / "input/my-novel/chapter_2.txt",
                     3: self.base / "input/my-novel/chapter_3.txt"}
-        with patch("translate.Path", side_effect=lambda p: self.base / p):
+        with patch("translate.OUTPUT_DIR", self.base / "output"):
             result = find_untranslated("my-novel", chapters)
         assert result == [1, 2, 3]
 
@@ -145,7 +145,7 @@ class TestFindUntranslated:
         chapters = {1: self.base / "input/my-novel/chapter_1.txt",
                     2: self.base / "input/my-novel/chapter_2.txt",
                     3: self.base / "input/my-novel/chapter_3.txt"}
-        with patch("translate.Path", side_effect=lambda p: self.base / p):
+        with patch("translate.OUTPUT_DIR", self.base / "output"):
             result = find_untranslated("my-novel", chapters)
         assert result == [2, 3]
 
@@ -154,6 +154,6 @@ class TestFindUntranslated:
         self._create_output("my-novel", [1, 2])
         chapters = {1: self.base / "input/my-novel/chapter_1.txt",
                     2: self.base / "input/my-novel/chapter_2.txt"}
-        with patch("translate.Path", side_effect=lambda p: self.base / p):
+        with patch("translate.OUTPUT_DIR", self.base / "output"):
             result = find_untranslated("my-novel", chapters)
         assert result == []

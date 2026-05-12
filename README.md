@@ -90,7 +90,7 @@ uv run translate my-novel -l chinese
 uv run translate my-novel -p gemini -r -s
 
 # Translate a range of chapters
-uv run translate my-novel --from 5 --to 10
+uv run translate my-novel --start 5 --to 10
 
 # Verbose mode (print AI requests/responses)
 uv run translate my-novel -v
@@ -106,8 +106,10 @@ uv run translate my-novel -v
 | `-r, --review` | Enable review step |
 | `-s, --summary` | Enable chapter summary generation |
 | `-v, --verbose` | Print full AI request/response to console |
-| `--from N` | Start from chapter N |
+| `--start N` | Start from chapter N |
 | `--to N` | Stop at chapter N (0 = all) |
+| `--force` | Re-translate already translated chapters |
+| `--dry-run` | List chapters to translate without running |
 
 ### How it works
 
@@ -140,19 +142,34 @@ detect → context → chunk → translate → review → [retry loop] → accep
 
 ```
 ├── translate.py         # Batch CLI (primary entry point)
-├── main.py              # Single-chapter CLI (legacy)
+├── main.py              # Single-chapter CLI
 ├── src/
-│   ├── config.py        # Environment-based configuration
+│   ├── config.py        # Environment-based configuration with validation
 │   ├── models/
 │   │   └── state.py     # LangGraph TypedDict state
 │   ├── graph/
 │   │   ├── builder.py   # Pipeline assembly
 │   │   └── nodes/       # Individual pipeline nodes
+│   │       ├── detector.py
+│   │       ├── context.py
+│   │       ├── chunker.py
+│   │       ├── translator.py
+│   │       ├── reviewer.py
+│   │       └── learner.py
 │   ├── services/
-│   │   ├── llm.py       # Multi-provider LLM interface
+│   │   ├── llm/         # Multi-provider LLM interface
+│   │   │   ├── __init__.py
+│   │   │   ├── base.py      # Abstract base class
+│   │   │   ├── factory.py   # Provider factory
+│   │   │   ├── fallback.py  # Primary + fallback wrapper
+│   │   │   ├── ollama.py
+│   │   │   ├── gemini.py
+│   │   │   └── openrouter.py
 │   │   ├── glossary.py  # Per-novel glossary management
 │   │   └── logger.py    # AI call logging
 │   └── utils/
+│       ├── display.py   # ANSI colors, banner, provider check
+│       ├── progress.py  # Batch progress tracker
 │       └── text.py      # Language detection, chunking
 ├── rules/               # Translation rules (common + per-language)
 ├── tests/               # Test suite

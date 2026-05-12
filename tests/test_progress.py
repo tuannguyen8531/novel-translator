@@ -10,7 +10,7 @@ from src.utils.progress import ProgressTracker
 class TestProgressTracker:
     def test_start_chapter_updates_state(self):
         tracker = ProgressTracker(10, "test-novel")
-        tracker.start_chapter(3, 5)
+        tracker.start_chapter(5, 3)
         assert tracker.current_chapter == 3
 
     def test_chapter_done_increments_success(self):

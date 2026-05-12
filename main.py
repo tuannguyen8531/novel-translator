@@ -17,83 +17,8 @@ from pathlib import Path
 from src.config import config
 from src.graph.builder import build_graph
 from src.models.state import initial_state
-
-
-# ANSI colors
-RESET = "\033[0m"
-BOLD = "\033[1m"
-DIM = "\033[2m"
-CYAN = "\033[36m"
-GREEN = "\033[32m"
-YELLOW = "\033[33m"
-RED = "\033[31m"
-MAGENTA = "\033[35m"
-
-
-def print_banner():
-    """Print the application banner."""
-    print(f"""
-{CYAN}╔══════════════════════════════════════════════════════╗
-║         📚  Novel Translator  📚                     ║
-║    Chinese / Korean / Japanese → Vietnamese          ║
-╚══════════════════════════════════════════════════════╝{RESET}
-{DIM}Provider: {config.llm_provider} · Model: {_get_model_name()} · Temp: {config.translation_temperature}{RESET}
-""")
-
-
-def _get_model_name() -> str:
-    """Get the current model name based on provider."""
-    if config.llm_provider == "ollama":
-        return config.ollama_model
-    elif config.llm_provider == "gemini":
-        return config.gemini_model
-    elif config.llm_provider == "openrouter":
-        return config.openrouter_model
-    return "unknown"
-
-
-def check_provider():
-    """Verify the configured LLM provider is accessible."""
-    provider = config.llm_provider
-
-    if provider == "ollama":
-        import httpx
-        try:
-            resp = httpx.get(f"{config.ollama_base_url}/api/tags", timeout=5.0)
-            resp.raise_for_status()
-            models = [m["name"] for m in resp.json().get("models", [])]
-            if config.ollama_model not in models:
-                # Check without tag
-                model_base = config.ollama_model.split(":")[0]
-                matching = [m for m in models if m.startswith(model_base)]
-                if not matching:
-                    print(f"{YELLOW}⚠ Model '{config.ollama_model}' not found. Available: {', '.join(models)}")
-                    print(f"  Run: ollama pull {config.ollama_model}{RESET}")
-                    return False
-            print(f"{GREEN}✓ Ollama connected. Model: {config.ollama_model}{RESET}")
-            return True
-        except Exception:
-            print(f"{RED}✗ Cannot connect to Ollama at {config.ollama_base_url}")
-            print(f"  Make sure Ollama is running: ollama serve{RESET}")
-            return False
-
-    elif provider == "gemini":
-        if not config.gemini_api_key:
-            print(f"{RED}✗ GEMINI_API_KEY not set in .env{RESET}")
-            return False
-        print(f"{GREEN}✓ Gemini API configured. Model: {config.gemini_model}{RESET}")
-        return True
-
-    elif provider == "openrouter":
-        if not config.openrouter_api_key:
-            print(f"{RED}✗ OPENROUTER_API_KEY not set in .env{RESET}")
-            return False
-        print(f"{GREEN}✓ OpenRouter API configured. Model: {config.openrouter_model}{RESET}")
-        return True
-
-    else:
-        print(f"{RED}✗ Unknown provider: {provider}{RESET}")
-        return False
+from src.services.logger import log_error
+from src.utils.display import print_banner, check_provider, RED, GREEN, YELLOW, DIM, RESET
 
 
 def parse_input_path(input_path: str) -> tuple[str, str, int]:
@@ -107,7 +32,6 @@ def parse_input_path(input_path: str) -> tuple[str, str, int]:
         print(f"{RED}✗ Input file not found: {input_path}{RESET}")
         sys.exit(1)
 
-    # Match pattern: .../{novel}/chapter_{number}.txt
     match = re.search(r"([^/\\]+)[/\\]chapter_(\d+)\.txt$", str(path))
     if not match:
         print(f"{RED}✗ Invalid file format. Expected: input/{{novel}}/chapter_{{number}}.txt{RESET}")
@@ -119,9 +43,8 @@ def parse_input_path(input_path: str) -> tuple[str, str, int]:
     return str(path), novel_name, chapter_number
 
 
-def translate_file(input_path: str, novel_name: str, chapter_number: int, language: str = ""):
+def translate_file(input_path: str, novel_name: str, chapter_number: int, language: str = "") -> None:
     """Run the translation pipeline on a file."""
-    # Read input
     input_file = Path(input_path)
     source_text = input_file.read_text(encoding="utf-8")
     if not source_text.strip():
@@ -136,21 +59,23 @@ def translate_file(input_path: str, novel_name: str, chapter_number: int, langua
         print(f"{DIM}🌐 Language: auto-detect{RESET}")
     print()
 
-    # Build and run graph
     graph = build_graph()
-
     start_time = time.time()
 
-    result = graph.invoke(initial_state(
-        source_text=source_text,
-        source_language=language,
-        novel_name=novel_name,
-        chapter_number=chapter_number,
-    ))
+    try:
+        result = graph.invoke(initial_state(
+            source_text=source_text,
+            source_language=language,
+            novel_name=novel_name,
+            chapter_number=chapter_number,
+        ))
+    except Exception as e:
+        log_error(f"Translation failed for chapter {chapter_number}", e, chapter=chapter_number, novel=novel_name)
+        print(f"{RED}✗ Translation failed: {e}{RESET}")
+        sys.exit(1)
 
     elapsed = time.time() - start_time
 
-    # Save output
     output_dir = Path("output") / novel_name
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"chapter_{chapter_number:03d}.txt"
@@ -158,7 +83,6 @@ def translate_file(input_path: str, novel_name: str, chapter_number: int, langua
     final_text = result.get("final_translation", "")
     output_file.write_text(final_text, encoding="utf-8")
 
-    # Print results
     print()
     print(f"{GREEN}{'═' * 54}")
     print(f"  ✅ Translation complete!")
@@ -175,7 +99,7 @@ def translate_file(input_path: str, novel_name: str, chapter_number: int, langua
     print()
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="📚 Novel Translator — Trung/Hàn/Nhật → Tiếng Việt",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -221,27 +145,23 @@ Examples:
 
     args = parser.parse_args()
 
-    # Parse novel name and chapter from file path
     input_path, novel_name, chapter_number = parse_input_path(args.input)
 
-    # Override provider if specified
     if args.provider:
         config.llm_provider = args.provider
 
-    # Override review/summary if specified via CLI
     if args.review:
         config.enable_review = True
     if args.summary:
         config.enable_summary = True
 
-    # Enable verbose console logging
     if args.verbose:
         from src.services.logger import set_verbose
         set_verbose(True)
 
-    print_banner()
+    print_banner(config)
 
-    if not check_provider():
+    if not check_provider(config):
         sys.exit(1)
 
     print()
