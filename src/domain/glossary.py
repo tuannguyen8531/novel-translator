@@ -17,6 +17,101 @@ def format_glossary_for_prompt(terms: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
+def validate_glossary_data(data: dict) -> list[str]:
+    """Validate glossary JSON shape and return human-readable issues."""
+    issues: list[str] = []
+
+    if not isinstance(data, dict):
+        return ["glossary root must be an object"]
+
+    terms = data.get("terms", {})
+    if terms is not None and not isinstance(terms, dict):
+        issues.append("terms must be an object")
+    elif isinstance(terms, dict):
+        for original, translated in terms.items():
+            if not isinstance(original, str) or not original.strip():
+                issues.append("terms contains an empty or non-string source term")
+            if not isinstance(translated, str) or not translated.strip():
+                issues.append(f"term {original!r} has an empty or non-string translation")
+
+    source_language = data.get("source_language", "")
+    if source_language is not None and not isinstance(source_language, str):
+        issues.append("source_language must be a string")
+
+    entities = data.get("entities", {})
+    if entities is not None and not isinstance(entities, dict):
+        issues.append("entities must be an object")
+        entities = {}
+    elif isinstance(entities, dict):
+        for original, info in entities.items():
+            if not isinstance(original, str) or not original.strip():
+                issues.append("entities contains an empty or non-string original name")
+                continue
+            if not isinstance(info, dict):
+                issues.append(f"entity {original!r} must be an object")
+                continue
+            for key in ("name_vi", "role", "pronoun"):
+                if key in info and not isinstance(info[key], str):
+                    issues.append(f"entity {original!r}.{key} must be a string")
+
+    edges = data.get("edges", [])
+    if edges is not None and not isinstance(edges, list):
+        issues.append("edges must be a list")
+    elif isinstance(edges, list):
+        entity_names = set(entities) if isinstance(entities, dict) else set()
+        for index, edge in enumerate(edges):
+            if not isinstance(edge, list) or len(edge) < 3:
+                issues.append(f"edge {index} must be [from, to, relationship, since_chapter?]")
+                continue
+            from_char, to_char, relationship = edge[0], edge[1], edge[2]
+            if not isinstance(from_char, str) or not from_char.strip():
+                issues.append(f"edge {index} has an invalid from character")
+            if not isinstance(to_char, str) or not to_char.strip():
+                issues.append(f"edge {index} has an invalid to character")
+            if not isinstance(relationship, str) or not relationship.strip():
+                issues.append(f"edge {index} has an invalid relationship")
+            if len(edge) > 3 and not isinstance(edge[3], int):
+                issues.append(f"edge {index} since_chapter must be an integer")
+            if entity_names:
+                if isinstance(from_char, str) and from_char not in entity_names:
+                    issues.append(f"edge {index} references unknown character {from_char!r}")
+                if isinstance(to_char, str) and to_char not in entity_names:
+                    issues.append(f"edge {index} references unknown character {to_char!r}")
+
+    summaries = data.get("chapter_summaries", {})
+    if summaries is not None and not isinstance(summaries, dict):
+        issues.append("chapter_summaries must be an object")
+    elif isinstance(summaries, dict):
+        for chapter, summary in summaries.items():
+            if not isinstance(chapter, str) or not chapter.isdigit():
+                issues.append(f"chapter summary key {chapter!r} must be a numeric string")
+            if not isinstance(summary, str):
+                issues.append(f"chapter summary {chapter!r} must be a string")
+
+    return issues
+
+
+def audit_term_usage(terms: dict[str, str], source_text: str, translated_text: str) -> list[dict]:
+    """Find glossary terms that look inconsistent between source and translation."""
+    issues: list[dict] = []
+    for original, translated in sorted(terms.items()):
+        if not original or not translated or original not in source_text:
+            continue
+        if translated not in translated_text:
+            issues.append({
+                "term": original,
+                "expected": translated,
+                "issue": "missing_translation",
+            })
+        if original in translated_text:
+            issues.append({
+                "term": original,
+                "expected": translated,
+                "issue": "source_term_leaked",
+            })
+    return issues
+
+
 def format_recent_summaries(summaries: dict, current_chapter: int, max_count: int = 3) -> str:
     """Format the most recent chapter summaries before current_chapter."""
     parts = []
@@ -124,6 +219,35 @@ def merge_character_context(data: dict, entities: dict, edges: list, chapter: in
             seen_pairs.add((to_char, from_char))
 
     return {**data, "entities": existing_entities, "edges": existing_edges}
+
+
+def upsert_relationship(
+    data: dict,
+    from_char: str,
+    to_char: str,
+    relationship: str,
+    since_chapter: int | None = None,
+) -> dict:
+    """Add or update one relationship edge, preserving the one-edge-per-pair rule."""
+    edges = [list(edge) for edge in data.get("edges", [])]
+    for edge in edges:
+        if len(edge) >= 3 and {edge[0], edge[1]} == {from_char, to_char}:
+            edge[0] = from_char
+            edge[1] = to_char
+            edge[2] = relationship
+            if since_chapter is None:
+                return {**data, "edges": edges}
+            if len(edge) > 3:
+                edge[3] = since_chapter
+            else:
+                edge.append(since_chapter)
+            return {**data, "edges": edges}
+
+    edge = [from_char, to_char, relationship]
+    if since_chapter is not None:
+        edge.append(since_chapter)
+    edges.append(edge)
+    return {**data, "edges": edges}
 
 
 def format_relationships_shorthand(entities: dict, edges: list) -> str:

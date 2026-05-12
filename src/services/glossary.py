@@ -39,6 +39,8 @@ from src.domain.glossary import (
     format_recent_summaries,
     merge_character_context,
     select_active_character_context,
+    upsert_relationship,
+    validate_glossary_data,
 )
 
 GLOSSARY_DIR = Path("glossary")
@@ -161,6 +163,57 @@ def save_character_pronoun(novel_name: str, original_name: str, pronoun: str) ->
 
     _merge_json_locked(path, updater)
     return found
+
+
+def save_character(novel_name: str, original_name: str, name_vi: str = "", role: str = "") -> bool:
+    """Update a character's Vietnamese name and/or role. Returns True if found."""
+    path = _glossary_path(novel_name)
+    found = False
+
+    def updater(data: dict) -> dict:
+        nonlocal found
+        entities = dict(data.get("entities", {}))
+        if original_name not in entities:
+            return data
+        info = dict(entities[original_name])
+        if name_vi:
+            info["name_vi"] = name_vi
+        if role:
+            info["role"] = role
+        entities[original_name] = info
+        found = True
+        return {**data, "entities": entities}
+
+    _merge_json_locked(path, updater)
+    return found
+
+
+def save_relationship(
+    novel_name: str,
+    from_char: str,
+    to_char: str,
+    relationship: str,
+    since_chapter: int | None = None,
+) -> bool:
+    """Add or update a relationship. Returns True when both characters exist."""
+    path = _glossary_path(novel_name)
+    updated = False
+
+    def updater(data: dict) -> dict:
+        nonlocal updated
+        entities = data.get("entities", {})
+        if from_char not in entities or to_char not in entities:
+            return data
+        updated = True
+        return upsert_relationship(data, from_char, to_char, relationship, since_chapter=since_chapter)
+
+    _merge_json_locked(path, updater)
+    return updated
+
+
+def validate_glossary(novel_name: str) -> list[str]:
+    """Validate a novel glossary file and return issues."""
+    return validate_glossary_data(load_glossary_data(novel_name))
 
 
 # ---------------------------------------------------------------------------

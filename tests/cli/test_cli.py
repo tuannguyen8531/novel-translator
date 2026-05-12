@@ -281,3 +281,63 @@ class TestGlossaryCli:
 
         output = capsys.readouterr().out
         assert "李白\tLý Bạch" in output
+
+    def test_glossary_character_relationship_validate_and_audit(self, capsys):
+        glossary_dir = self.base / "glossary"
+        glossary_dir.mkdir()
+        glossary_file = glossary_dir / "my-novel.json"
+        glossary_file.write_text(json.dumps({
+            "terms": {"李白": "Lý Bạch"},
+            "entities": {
+                "李白": {"name_vi": "Lý Bạch", "role": "minor", "pronoun": ""},
+                "杜甫": {"name_vi": "Đỗ Phủ", "role": "supporting", "pronoun": ""},
+            },
+            "edges": [],
+        }, ensure_ascii=False), encoding="utf-8")
+
+        input_dir = self.base / "input"
+        output_dir = self.base / "output"
+        (input_dir / "my-novel").mkdir(parents=True)
+        (output_dir / "my-novel").mkdir(parents=True)
+        (input_dir / "my-novel" / "chapter_1.txt").write_text("李白 đi chơi.", encoding="utf-8")
+        (output_dir / "my-novel" / "chapter_001.txt").write_text("李白 đi chơi.", encoding="utf-8")
+
+        with (
+            patch("sys.argv", [
+                "translate", "glossary", "character", "my-novel", "李白",
+                "--name-vi", "Lý Thái Bạch", "--role", "supporting",
+            ]),
+            patch("src.services.glossary.GLOSSARY_DIR", glossary_dir),
+        ):
+            translate_main()
+
+        with (
+            patch("sys.argv", [
+                "translate", "glossary", "relationship", "my-novel", "李白", "杜甫", "friend", "--since", "1",
+            ]),
+            patch("src.services.glossary.GLOSSARY_DIR", glossary_dir),
+        ):
+            translate_main()
+
+        with (
+            patch("sys.argv", ["translate", "glossary", "validate", "my-novel"]),
+            patch("src.services.glossary.GLOSSARY_DIR", glossary_dir),
+        ):
+            translate_main()
+
+        with (
+            patch("sys.argv", ["translate", "glossary", "audit", "my-novel"]),
+            patch("src.services.glossary.GLOSSARY_DIR", glossary_dir),
+            patch("translate.INPUT_DIR", input_dir),
+            patch("translate.OUTPUT_DIR", output_dir),
+            pytest.raises(SystemExit),
+        ):
+            translate_main()
+
+        data = json.loads(glossary_file.read_text(encoding="utf-8"))
+        output = capsys.readouterr().out
+        assert data["entities"]["李白"]["name_vi"] == "Lý Thái Bạch"
+        assert data["entities"]["李白"]["role"] == "supporting"
+        assert data["edges"] == [["李白", "杜甫", "friend", 1]]
+        assert "Glossary valid" in output
+        assert "missing_translation" in output

@@ -110,6 +110,35 @@ def save_quality_report(novel_name: str, chapter_number: int, report: dict) -> N
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def audit_glossary_outputs(novel_name: str, terms: dict[str, str]) -> list[dict]:
+    """Audit translated chapters for obvious glossary consistency problems."""
+    from src.domain.glossary import audit_term_usage
+
+    issues: list[dict] = []
+    source_dir = INPUT_DIR / novel_name
+    output_dir = OUTPUT_DIR / novel_name
+    if not source_dir.exists() or not output_dir.exists():
+        return issues
+
+    for source_path in sorted(source_dir.glob("chapter_*.txt")):
+        match = re.match(r"^chapter_(\d+)\.txt$", source_path.name)
+        if not match:
+            continue
+        chapter = int(match.group(1))
+        output_path = output_dir / f"chapter_{chapter:03d}.txt"
+        if not output_path.exists():
+            output_path = output_dir / source_path.name
+        if not output_path.exists():
+            continue
+
+        source_text = source_path.read_text(encoding="utf-8")
+        translated_text = output_path.read_text(encoding="utf-8")
+        for issue in audit_term_usage(terms, source_text, translated_text):
+            issues.append({"chapter": chapter, **issue})
+
+    return issues
+
+
 def translate_file(input_path: Path, novel_name: str, chapter_number: int, language: str = "", graph=None) -> tuple[bool, int, float, int]:
     """Run the translation pipeline on a file. Returns (success, char_count, elapsed, new_terms_count)."""
     source_text = input_path.read_text(encoding="utf-8")
@@ -156,8 +185,11 @@ def glossary_main(argv: list[str]) -> None:
     from src.services.glossary import (
         load_glossary_data,
         remove_glossary_term,
+        save_character,
         save_character_pronoun,
         save_glossary,
+        save_relationship,
+        validate_glossary,
     )
 
     parser = argparse.ArgumentParser(description="Manage novel glossary data")
@@ -185,6 +217,25 @@ def glossary_main(argv: list[str]) -> None:
     pronoun_parser.add_argument("novel")
     pronoun_parser.add_argument("original")
     pronoun_parser.add_argument("pronoun")
+
+    character_edit_parser = subparsers.add_parser("character", help="Update a character name or role")
+    character_edit_parser.add_argument("novel")
+    character_edit_parser.add_argument("original")
+    character_edit_parser.add_argument("--name-vi", default="", help="Vietnamese character name")
+    character_edit_parser.add_argument("--role", default="", help="Character role")
+
+    relationship_parser = subparsers.add_parser("relationship", help="Add or update a character relationship")
+    relationship_parser.add_argument("novel")
+    relationship_parser.add_argument("from_char")
+    relationship_parser.add_argument("to_char")
+    relationship_parser.add_argument("relationship")
+    relationship_parser.add_argument("--since", type=int, default=None, help="Chapter where this relationship starts")
+
+    validate_parser = subparsers.add_parser("validate", help="Validate glossary JSON")
+    validate_parser.add_argument("novel")
+
+    audit_parser = subparsers.add_parser("audit", help="Audit translated output against glossary terms")
+    audit_parser.add_argument("novel")
 
     args = parser.parse_args(argv)
 
@@ -232,6 +283,54 @@ def glossary_main(argv: list[str]) -> None:
             print(f"{GREEN}✓ Updated pronoun:{RESET} {args.original} → {args.pronoun}")
         else:
             print(f"{YELLOW}Character not found:{RESET} {args.original}")
+        return
+
+    if args.command == "character":
+        if not args.name_vi and not args.role:
+            print(f"{YELLOW}Nothing to update. Use --name-vi and/or --role.{RESET}")
+            return
+        updated = save_character(args.novel, args.original, name_vi=args.name_vi, role=args.role)
+        if updated:
+            print(f"{GREEN}✓ Updated character:{RESET} {args.original}")
+        else:
+            print(f"{YELLOW}Character not found:{RESET} {args.original}")
+        return
+
+    if args.command == "relationship":
+        updated = save_relationship(
+            args.novel,
+            args.from_char,
+            args.to_char,
+            args.relationship,
+            since_chapter=args.since,
+        )
+        if updated:
+            print(f"{GREEN}✓ Updated relationship:{RESET} {args.from_char} → {args.to_char} ({args.relationship})")
+        else:
+            print(f"{YELLOW}Relationship not updated; both characters must exist.{RESET}")
+        return
+
+    if args.command == "validate":
+        issues = validate_glossary(args.novel)
+        if not issues:
+            print(f"{GREEN}✓ Glossary valid:{RESET} {args.novel}")
+            return
+        for issue in issues:
+            print(f"{RED}✗ {issue}{RESET}")
+        sys.exit(1)
+
+    if args.command == "audit":
+        terms = load_glossary_data(args.novel).get("terms", {})
+        issues = audit_glossary_outputs(args.novel, terms)
+        if not issues:
+            print(f"{GREEN}✓ No glossary audit issues found:{RESET} {args.novel}")
+            return
+        for issue in issues:
+            print(
+                f"{RED}✗ Ch.{issue['chapter']} {issue['issue']}:{RESET} "
+                f"{issue['term']} → {issue['expected']}"
+            )
+        sys.exit(1)
 
 
 def main() -> None:

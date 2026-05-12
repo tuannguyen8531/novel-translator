@@ -10,8 +10,11 @@ from src.services.glossary import (
     load_glossary,
     remove_glossary_term,
     save_glossary,
+    save_character,
     save_character_pronoun,
     save_characters_batch,
+    save_relationship,
+    validate_glossary,
     load_chapter_summary,
     save_chapter_summary,
     load_chapter_summaries_recent,
@@ -75,6 +78,40 @@ class TestGlossary:
 
     def test_save_character_pronoun_missing_character(self):
         assert not save_character_pronoun("test-novel", "missing", "ông")
+
+    def test_save_character_updates_name_and_role(self):
+        save_characters_batch(
+            "test-novel",
+            {"李白": {"name_vi": "Lý Bạch", "role": "minor", "pronoun": ""}},
+            [],
+        )
+
+        assert save_character("test-novel", "李白", name_vi="Lý Thái Bạch", role="supporting")
+        data = load_glossary_data("test-novel")
+        assert data["entities"]["李白"]["name_vi"] == "Lý Thái Bạch"
+        assert data["entities"]["李白"]["role"] == "supporting"
+
+    def test_save_character_missing_character(self):
+        assert not save_character("test-novel", "missing", role="supporting")
+
+    def test_save_relationship_requires_existing_characters(self):
+        save_characters_batch(
+            "test-novel",
+            {
+                "李白": {"name_vi": "Lý Bạch", "role": "supporting", "pronoun": ""},
+                "杜甫": {"name_vi": "Đỗ Phủ", "role": "supporting", "pronoun": ""},
+            },
+            [],
+        )
+
+        assert save_relationship("test-novel", "李白", "杜甫", "friend", since_chapter=2)
+        assert load_glossary_data("test-novel")["edges"] == [["李白", "杜甫", "friend", 2]]
+        assert not save_relationship("test-novel", "李白", "missing", "enemy")
+
+    def test_validate_glossary(self):
+        save_glossary("test-novel", {"李白": "Lý Bạch"})
+
+        assert validate_glossary("test-novel") == []
 
     def test_save_and_load_chapter_summary(self):
         save_chapter_summary("test-novel", 1, "Chapter 1 summary")

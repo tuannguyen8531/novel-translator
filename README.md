@@ -141,6 +141,18 @@ uv run translate glossary characters my-novel
 
 # Set a character pronoun
 uv run translate glossary pronoun my-novel 李明 "cậu"
+
+# Update a character name or role
+uv run translate glossary character my-novel 李明 --name-vi "Lý Minh" --role protagonist
+
+# Add or update a relationship
+uv run translate glossary relationship my-novel 李明 张伟 friend --since 3
+
+# Validate glossary JSON
+uv run translate glossary validate my-novel
+
+# Audit translated output against glossary terms
+uv run translate glossary audit my-novel
 ```
 
 ### How it works
@@ -212,7 +224,14 @@ detect → context → chunk → translate → review → [retry loop] → accep
 │       ├── json.py      # JSON object parsing helpers
 │       └── progress.py  # Batch progress tracker
 ├── rules/               # Translation rules (common + per-language)
-├── tests/               # Test suite
+├── tests/               # Test suite grouped by application layer
+│   ├── cli/             # CLI parsing and batch workflow helpers
+│   ├── config/          # Runtime configuration
+│   ├── domain/          # Pure translation/domain rules
+│   ├── graph/           # Graph routing and node behavior
+│   ├── models/          # Shared state/data models
+│   ├── services/        # LLM, glossary persistence, logging
+│   └── utils/           # Reusable helpers
 ├── glossary/            # Auto-generated per-novel glossaries
 ├── input/               # Place source chapters here
 ├── output/              # Translated chapters saved here
@@ -226,6 +245,16 @@ detect → context → chunk → translate → review → [retry loop] → accep
 ```bash
 uv run pytest tests/ -v
 ```
+
+Tests are organized by layer under `tests/`. For focused runs:
+
+```bash
+uv run pytest tests/domain/ -v
+uv run pytest tests/services/ -v
+uv run pytest tests/cli/ -v
+```
+
+See `tests/README.md` for the full test layout.
 
 ## License
 
