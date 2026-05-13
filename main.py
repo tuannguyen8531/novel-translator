@@ -21,10 +21,16 @@ from src.services.logger import log_error
 from src.utils.display import print_banner, check_provider, RED, GREEN, YELLOW, DIM, RESET
 
 
+def _get_output_dir() -> Path:
+    if config.novel_share_dir:
+        return Path(config.novel_share_dir) / "output"
+    return Path("output")
+
+
 def parse_input_path(input_path: str) -> tuple[str, str, int]:
     """Parse novel name and chapter number from file path.
 
-    Expected format: input/{novel}/chapter_{number}.txt
+    Expected format: {base}/{novel}/chapter_{number}.txt
     Returns: (full_path, novel_name, chapter_number)
     """
     path = Path(input_path)
@@ -34,7 +40,7 @@ def parse_input_path(input_path: str) -> tuple[str, str, int]:
 
     match = re.search(r"([^/\\]+)[/\\]chapter_(\d+)\.txt$", str(path))
     if not match:
-        print(f"{RED}✗ Invalid file format. Expected: input/{{novel}}/chapter_{{number}}.txt{RESET}")
+        print(f"{RED}✗ Invalid file format. Expected: {{novel}}/chapter_{{number}}.txt{RESET}")
         print(f"  Got: {input_path}{RESET}")
         sys.exit(1)
 
@@ -76,7 +82,7 @@ def translate_file(input_path: str, novel_name: str, chapter_number: int, langua
 
     elapsed = time.time() - start_time
 
-    output_dir = Path("output") / novel_name
+    output_dir = _get_output_dir() / novel_name
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"chapter_{chapter_number:03d}.txt"
 

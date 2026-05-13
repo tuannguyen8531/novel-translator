@@ -40,6 +40,7 @@ class Config:
     max_retries: int = 2
     enable_review: bool = False
     enable_summary: bool = False
+    novel_share_dir: str = ""  # Empty = use input/ and output/ dirs
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
@@ -74,6 +75,7 @@ class Config:
             max_retries=int(os.getenv("MAX_RETRIES", "2")),
             enable_review=os.getenv("ENABLE_REVIEW", "false").lower() in ("true", "1", "yes"),
             enable_summary=os.getenv("ENABLE_SUMMARY", "false").lower() in ("true", "1", "yes"),
+            novel_share_dir=os.getenv("NOVEL_SHARE_DIR", ""),
         )
 
 
