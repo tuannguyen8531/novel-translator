@@ -1,9 +1,12 @@
 from src.domain.glossary import (
     audit_term_usage,
+    extract_pronoun_examples,
     format_glossary_for_prompt,
+    format_pronoun_examples,
     format_recent_summaries,
     format_relationships_shorthand,
     merge_character_context,
+    merge_pronoun_examples,
     select_active_character_context,
     upsert_relationship,
     validate_glossary_data,
@@ -133,3 +136,89 @@ def test_format_relationships_shorthand():
     assert "=== CHARACTERS ===" in result
     assert 'Lý Minh[protagonist, pronoun="cậu"]' in result
     assert "Lý Minh(friend)->Trương Vĩ" in result
+
+
+def test_extract_pronoun_examples():
+    translation = "Lý Minh bước vào phòng. Cậu nhìn xung quanh. Cậu thấy Trương Vĩ đang ngồi đó. Trương Vĩ mỉm cười với cậu."
+    entities = {
+        "李明": {"name_vi": "Lý Minh", "pronoun": "cậu"},
+        "张伟": {"name_vi": "Trương Vĩ", "pronoun": "anh ấy"},
+    }
+
+    result = extract_pronoun_examples(translation, entities)
+
+    assert "李明" in result
+    assert any("cậu" in ex for ex in result["李明"])
+
+
+def test_extract_pronoun_examples_no_pronoun():
+    translation = "Lý Minh bước vào phòng."
+    entities = {
+        "李明": {"name_vi": "Lý Minh", "pronoun": ""},
+    }
+
+    result = extract_pronoun_examples(translation, entities)
+    assert result == {}
+
+
+def test_merge_pronoun_examples_deduplicates():
+    existing = {"李明": ["Cậu bước vào phòng.", "Cậu nhìn xung quanh."]}
+    new = {"李明": ["Cậu nhìn xung quanh.", "Cậu thấy vui."]}
+
+    result = merge_pronoun_examples(existing, new)
+
+    assert result["李明"] == ["Cậu bước vào phòng.", "Cậu nhìn xung quanh.", "Cậu thấy vui."]
+
+
+def test_merge_pronoun_examples_keeps_recent():
+    existing = {"李明": ["Ex1", "Ex2", "Ex3"]}
+    new = {"李明": ["Ex4"]}
+
+    result = merge_pronoun_examples(existing, new)
+
+    assert len(result["李明"]) == 3
+    assert result["李明"] == ["Ex2", "Ex3", "Ex4"]
+
+
+def test_format_pronoun_examples():
+    entities = {
+        "李明": {"name_vi": "Lý Minh", "pronoun": "cậu"},
+        "张伟": {"name_vi": "Trương Vĩ", "pronoun": "anh ấy"},
+    }
+    examples = {
+        "李明": ["Cậu bước vào phòng.", "Cậu mỉm cười."],
+    }
+
+    result = format_pronoun_examples(entities, examples)
+
+    assert "=== PRONOUN USAGE" in result
+    assert 'Lý Minh → use "cậu"' in result
+    assert "Cậu bước vào phòng." in result
+    assert "Trương Vĩ" not in result  # No examples for this character
+
+
+def test_format_pronoun_examples_empty():
+    result = format_pronoun_examples({}, {})
+    assert result == ""
+
+
+def test_validate_glossary_data_pronoun_examples():
+    data = {
+        "pronoun_examples": {
+            "李明": ["Cậu bước vào phòng.", "Cậu mỉm cười."],
+        },
+    }
+    issues = validate_glossary_data(data)
+    assert issues == []
+
+
+def test_validate_glossary_data_bad_pronoun_examples():
+    issues = validate_glossary_data({
+        "pronoun_examples": {"": ["valid"]},
+    })
+    assert "pronoun_examples contains an empty or non-string character name" in issues
+
+    issues = validate_glossary_data({
+        "pronoun_examples": {"李明": "not a list"},
+    })
+    assert "pronoun_examples['李明'] must be a list" in issues

@@ -2,6 +2,9 @@
 
 import re
 
+MAX_PRONOUN_EXAMPLES_PER_CHAR = 3
+MAX_PRONOUN_EXAMPLE_LENGTH = 150
+
 
 CJK_RE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]")
 
@@ -87,6 +90,20 @@ def validate_glossary_data(data: dict) -> list[str]:
                 issues.append(f"chapter summary key {chapter!r} must be a numeric string")
             if not isinstance(summary, str):
                 issues.append(f"chapter summary {chapter!r} must be a string")
+
+    pronoun_examples = data.get("pronoun_examples", {})
+    if pronoun_examples is not None and not isinstance(pronoun_examples, dict):
+        issues.append("pronoun_examples must be an object")
+    elif isinstance(pronoun_examples, dict):
+        for name, examples in pronoun_examples.items():
+            if not isinstance(name, str) or not name.strip():
+                issues.append("pronoun_examples contains an empty or non-string character name")
+            if not isinstance(examples, list):
+                issues.append(f"pronoun_examples[{name!r}] must be a list")
+            else:
+                for i, ex in enumerate(examples):
+                    if not isinstance(ex, str) or not ex.strip():
+                        issues.append(f"pronoun_examples[{name!r}][{i}] must be a non-empty string")
 
     return issues
 
@@ -286,3 +303,73 @@ def format_relationships_shorthand(entities: dict, edges: list) -> str:
     lines.append("=== END CHARACTERS ===")
 
     return "\n".join(lines)
+
+
+def extract_pronoun_examples(translation: str, entities: dict) -> dict[str, list[str]]:
+    """Extract sentences showing pronoun usage for each character from translation.
+
+    For each character with a pronoun, finds sentences where the pronoun is used.
+    Returns at most MAX_PRONOUN_EXAMPLES_PER_CHAR examples per character.
+    """
+    sentences = re.split(r"(?<=[.!?…])\s+", translation)
+    examples: dict[str, list[str]] = {}
+
+    for name, info in entities.items():
+        pronoun = info.get("pronoun", "")
+        name_vi = info.get("name_vi", "")
+        if not pronoun or not name_vi:
+            continue
+
+        char_examples = []
+        pronoun_lower = pronoun.lower()
+
+        for sentence in sentences:
+            if len(char_examples) >= MAX_PRONOUN_EXAMPLES_PER_CHAR:
+                break
+            if len(sentence) > MAX_PRONOUN_EXAMPLE_LENGTH:
+                continue
+            sentence_lower = sentence.lower()
+            # Use word boundaries to avoid partial matches (e.g. 'y' matching 'máy')
+            if re.search(rf'\b{re.escape(pronoun_lower)}\b', sentence_lower):
+                char_examples.append(sentence.strip())
+
+        if char_examples:
+            examples[name] = char_examples
+
+    return examples
+
+
+def merge_pronoun_examples(existing: dict[str, list[str]], new: dict[str, list[str]]) -> dict[str, list[str]]:
+    """Merge new pronoun examples into existing, deduplicating and keeping recent ones."""
+    merged = dict(existing)
+    for name, new_examples in new.items():
+        existing_examples = merged.get(name, [])
+        # Add new examples that aren't already present
+        for ex in new_examples:
+            if ex not in existing_examples:
+                existing_examples.append(ex)
+        # Keep only the most recent examples (last N)
+        merged[name] = existing_examples[-MAX_PRONOUN_EXAMPLES_PER_CHAR:]
+    return merged
+
+
+def format_pronoun_examples(entities: dict, pronoun_examples: dict[str, list[str]]) -> str:
+    """Format pronoun usage examples for inclusion in translator prompt."""
+    if not pronoun_examples:
+        return ""
+
+    parts = ["=== PRONOUN USAGE (follow these patterns consistently) ==="]
+    for name, info in entities.items():
+        if name not in pronoun_examples:
+            continue
+        name_vi = info.get("name_vi") or name
+        pronoun = info.get("pronoun", "")
+        if not pronoun:
+            continue
+
+        parts.append(f'{name_vi} → use "{pronoun}" as third-person pronoun:')
+        for example in pronoun_examples[name]:
+            parts.append(f'  - "{example}"')
+
+    parts.append("=== END PRONOUN USAGE ===")
+    return "\n".join(parts)

@@ -80,11 +80,15 @@ class TestScanChapters:
     def setup_method(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.original_input = Path("input")
-        self.patcher = patch("translate.INPUT_DIR", Path(self.temp_dir.name))
-        self.patcher.start()
+        self.patcher_input = patch("translate.INPUT_DIR", Path(self.temp_dir.name))
+        self.patcher_input.start()
+        self.patcher_config = patch("translate.config")
+        self.mock_config = self.patcher_config.start()
+        self.mock_config.novel_share_dir = ""
 
     def teardown_method(self):
-        self.patcher.stop()
+        self.patcher_input.stop()
+        self.patcher_config.stop()
         self.temp_dir.cleanup()
 
     def _create_chapter(self, novel: str, num: int, content: str = "test"):
@@ -143,7 +147,9 @@ class TestFindUntranslated:
         chapters = {1: self.base / "input/my-novel/chapter_1.txt",
                     2: self.base / "input/my-novel/chapter_2.txt",
                     3: self.base / "input/my-novel/chapter_3.txt"}
-        with patch("translate.OUTPUT_DIR", self.base / "output"):
+        with patch("translate.OUTPUT_DIR", self.base / "output"), \
+             patch("translate.config") as mock_config:
+            mock_config.novel_share_dir = ""
             result = find_untranslated("my-novel", chapters)
         assert result == [1, 2, 3]
 
@@ -153,7 +159,9 @@ class TestFindUntranslated:
         chapters = {1: self.base / "input/my-novel/chapter_1.txt",
                     2: self.base / "input/my-novel/chapter_2.txt",
                     3: self.base / "input/my-novel/chapter_3.txt"}
-        with patch("translate.OUTPUT_DIR", self.base / "output"):
+        with patch("translate.OUTPUT_DIR", self.base / "output"), \
+             patch("translate.config") as mock_config:
+            mock_config.novel_share_dir = ""
             result = find_untranslated("my-novel", chapters)
         assert result == [2, 3]
 
@@ -162,7 +170,9 @@ class TestFindUntranslated:
         self._create_output("my-novel", [1, 2])
         chapters = {1: self.base / "input/my-novel/chapter_1.txt",
                     2: self.base / "input/my-novel/chapter_2.txt"}
-        with patch("translate.OUTPUT_DIR", self.base / "output"):
+        with patch("translate.OUTPUT_DIR", self.base / "output"), \
+             patch("translate.config") as mock_config:
+            mock_config.novel_share_dir = ""
             result = find_untranslated("my-novel", chapters)
         assert result == []
 
@@ -183,9 +193,11 @@ class TestDryRun:
             patch("sys.argv", ["translate", "my-novel", "--dry-run"]),
             patch("translate.INPUT_DIR", self.base / "input"),
             patch("translate.OUTPUT_DIR", self.base / "output"),
+            patch("translate.config") as mock_config,
             patch("translate.print_banner"),
             patch("translate.check_provider") as mock_check_provider,
         ):
+            mock_config.novel_share_dir = ""
             translate_main()
 
         mock_check_provider.assert_not_called()
@@ -237,7 +249,9 @@ class TestQualityReport:
         with (
             patch("translate.OUTPUT_DIR", self.base / "output"),
             patch("translate.REPORT_DIR", self.base / "reports"),
+            patch("translate.config") as mock_config,
         ):
+            mock_config.novel_share_dir = ""
             success, out_chars, elapsed, new_terms_count = translate_file(
                 self.input_path,
                 "my-novel",
@@ -330,8 +344,10 @@ class TestGlossaryCli:
             patch("src.services.glossary.GLOSSARY_DIR", glossary_dir),
             patch("translate.INPUT_DIR", input_dir),
             patch("translate.OUTPUT_DIR", output_dir),
+            patch("translate.config") as mock_config,
             pytest.raises(SystemExit),
         ):
+            mock_config.novel_share_dir = ""
             translate_main()
 
         data = json.loads(glossary_file.read_text(encoding="utf-8"))

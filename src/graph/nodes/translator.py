@@ -10,7 +10,7 @@ Builds a rich system prompt containing:
 
 from src.models.state import TranslationState
 from src.services.llm import get_llm
-from src.domain.glossary import format_glossary_for_prompt, format_relationships_shorthand
+from src.domain.glossary import format_glossary_for_prompt, format_relationships_shorthand, format_pronoun_examples
 from src.services.logger import log_ai_call
 
 
@@ -67,6 +67,14 @@ def translator_node(state: TranslationState) -> dict:
     )
     if relationships_text:
         system_parts.append(f"\n{relationships_text}")
+
+    # Add pronoun usage examples (concrete examples from previous translations)
+    pronoun_examples_text = format_pronoun_examples(
+        char_data.get("entities", {}),
+        char_data.get("pronoun_examples", {}),
+    )
+    if pronoun_examples_text:
+        system_parts.append(f"\n{pronoun_examples_text}")
 
     # Add previous chapter summary for context
     if state.get("previous_summary"):

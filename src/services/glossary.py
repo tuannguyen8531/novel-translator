@@ -38,6 +38,7 @@ from pathlib import Path
 from src.domain.glossary import (
     format_recent_summaries,
     merge_character_context,
+    merge_pronoun_examples,
     select_active_character_context,
     upsert_relationship,
     validate_glossary_data,
@@ -320,5 +321,29 @@ def save_characters_batch(novel_name: str, entities: dict, edges: list, chapter:
 
     def updater(data: dict) -> dict:
         return merge_character_context(data, entities, edges, chapter=chapter)
+
+    _merge_json_locked(path, updater)
+
+
+# ---------------------------------------------------------------------------
+# Pronoun usage examples
+# ---------------------------------------------------------------------------
+
+def load_pronoun_examples(novel_name: str) -> dict[str, list[str]]:
+    """Load pronoun usage examples for a novel."""
+    data = _read_json_locked(_glossary_path(novel_name))
+    return data.get("pronoun_examples", {})
+
+
+def save_pronoun_examples(novel_name: str, examples: dict[str, list[str]]) -> None:
+    """Merge and save pronoun usage examples (thread-safe)."""
+    if not examples:
+        return
+    path = _glossary_path(novel_name)
+
+    def updater(data: dict) -> dict:
+        existing = data.get("pronoun_examples", {})
+        merged = merge_pronoun_examples(existing, examples)
+        return {**data, "pronoun_examples": merged}
 
     _merge_json_locked(path, updater)

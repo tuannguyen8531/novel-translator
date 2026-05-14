@@ -11,7 +11,7 @@ For chapter summaries, only loads the last 3 chapters for conciseness.
 from pathlib import Path
 
 from src.models.state import TranslationState
-from src.services.glossary import load_glossary, load_chapter_summaries_recent, load_source_language, get_active_context
+from src.services.glossary import load_glossary, load_chapter_summaries_recent, load_source_language, get_active_context, load_pronoun_examples
 
 
 RULES_DIR = Path("rules")
@@ -61,10 +61,18 @@ def context_node(state: TranslationState) -> dict:
     if entities:
         print(f"  👥 Loaded {len(entities)} active character(s) with {len(edges)} relationship(s)")
 
+    # 5. Load pronoun usage examples for active characters
+    all_pronoun_examples = load_pronoun_examples(novel_name)
+    active_pronoun_examples = {
+        name: examples
+        for name, examples in all_pronoun_examples.items()
+        if name in entities
+    }
+
     return {
         "source_language": language,
         "translation_rules": rules,
         "glossary": glossary,
         "previous_summary": previous_summary,
-        "characters": {"entities": entities, "edges": edges},
+        "characters": {"entities": entities, "edges": edges, "pronoun_examples": active_pronoun_examples},
     }

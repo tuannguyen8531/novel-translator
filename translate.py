@@ -30,7 +30,7 @@ PROGRESS_DIR = Path(".progress")
 
 def _get_input_dir() -> Path:
     if config.novel_share_dir:
-        return Path(config.novel_share_dir)
+        return Path(config.novel_share_dir) / "input"
     return INPUT_DIR
 
 
