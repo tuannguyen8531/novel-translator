@@ -28,16 +28,16 @@ REPORT_DIR = Path("reports")
 PROGRESS_DIR = Path(".progress")
 
 
-def _get_input_dir() -> Path:
+def _get_input_dir(novel_name: str) -> Path:
     if config.novel_share_dir:
-        return Path(config.novel_share_dir) / "input"
-    return INPUT_DIR
+        return Path(config.novel_share_dir) / novel_name / "input"
+    return INPUT_DIR / novel_name
 
 
-def _get_output_dir() -> Path:
+def _get_output_dir(novel_name: str) -> Path:
     if config.novel_share_dir:
-        return Path(config.novel_share_dir) / "output"
-    return OUTPUT_DIR
+        return Path(config.novel_share_dir) / novel_name / "output"
+    return OUTPUT_DIR / novel_name
 
 _shutdown_requested = False
 _graph = None
@@ -54,7 +54,7 @@ def scan_chapters(novel_name: str) -> dict[int, Path]:
 
     Returns dict of chapter_number -> file_path, sorted by chapter number.
     """
-    novel_dir = _get_input_dir() / novel_name
+    novel_dir = _get_input_dir(novel_name)
     if not novel_dir.exists():
         print(f"{RED}✗ Input directory not found: {novel_dir}{RESET}")
         sys.exit(1)
@@ -76,7 +76,7 @@ def find_untranslated(novel_name: str, chapters: dict[int, Path], force: bool = 
     if force:
         return sorted(chapters.keys())
 
-    output_dir = _get_output_dir() / novel_name
+    output_dir = _get_output_dir(novel_name)
     translated = set()
     if output_dir.exists():
         for f in output_dir.iterdir():
@@ -127,8 +127,8 @@ def audit_glossary_outputs(novel_name: str, terms: dict[str, str]) -> list[dict]
     from src.domain.glossary import audit_term_usage
 
     issues: list[dict] = []
-    source_dir = _get_input_dir() / novel_name
-    output_dir = _get_output_dir() / novel_name
+    source_dir = _get_input_dir(novel_name)
+    output_dir = _get_output_dir(novel_name)
     if not source_dir.exists() or not output_dir.exists():
         return issues
 
@@ -171,7 +171,7 @@ def translate_file(input_path: Path, novel_name: str, chapter_number: int, langu
 
     elapsed = time.time() - start
 
-    output_dir = _get_output_dir() / novel_name
+    output_dir = _get_output_dir(novel_name)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"chapter_{chapter_number:03d}.txt"
 
@@ -447,7 +447,7 @@ Examples:
 
     chapters = scan_chapters(novel_name)
     if not chapters:
-        input_dir = _get_input_dir()
+        input_dir = _get_input_dir(novel_name)
         print(f"{RED}✗ No chapter files found in {input_dir}/{novel_name}/{RESET}")
         print(f"  Expected format: {input_dir}/{novel_name}/chapter_1.txt{RESET}")
         sys.exit(1)

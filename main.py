@@ -21,22 +21,31 @@ from src.services.logger import log_error
 from src.utils.display import print_banner, check_provider, RED, GREEN, YELLOW, DIM, RESET
 
 
-def _get_output_dir() -> Path:
+def _get_output_dir(novel_name: str) -> Path:
     if config.novel_share_dir:
-        return Path(config.novel_share_dir) / "output"
-    return Path("output")
+        return Path(config.novel_share_dir) / novel_name / "output"
+    return Path("output") / novel_name
 
 
 def parse_input_path(input_path: str) -> tuple[str, str, int]:
     """Parse novel name and chapter number from file path.
 
-    Expected format: {base}/{novel}/chapter_{number}.txt
+    Expected formats:
+      - {base}/{novel}/chapter_{number}.txt (local input/ dir)
+      - {base}/{novel}/input/chapter_{number}.txt (shared dir)
     Returns: (full_path, novel_name, chapter_number)
     """
     path = Path(input_path)
     if not path.exists():
         print(f"{RED}✗ Input file not found: {input_path}{RESET}")
         sys.exit(1)
+
+    # Handle shared dir pattern: .../{novel}/input/chapter_N.txt
+    if path.parent.name == "input":
+        novel_name = path.parent.parent.name
+        match = re.match(r"^chapter_(\d+)\.txt$", path.name)
+        if match and novel_name:
+            return str(path), novel_name, int(match.group(1))
 
     match = re.search(r"([^/\\]+)[/\\]chapter_(\d+)\.txt$", str(path))
     if not match:
@@ -82,7 +91,7 @@ def translate_file(input_path: str, novel_name: str, chapter_number: int, langua
 
     elapsed = time.time() - start_time
 
-    output_dir = _get_output_dir() / novel_name
+    output_dir = _get_output_dir(novel_name)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"chapter_{chapter_number:03d}.txt"
 
