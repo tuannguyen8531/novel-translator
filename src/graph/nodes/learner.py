@@ -15,7 +15,7 @@ from src.config import config
 from src.domain.terms import MIN_TERM_FREQUENCY, filter_terms_by_frequency
 from src.domain.glossary import extract_pronoun_examples
 from src.utils.json import parse_json_object
-
+from src.prompts import render_prompt
 
 KINSHIP_TERMS = {
     # English
@@ -81,7 +81,6 @@ def _normalize_relationship(rel_type: str) -> str:
     if rel_lower in ALLOWED_RELATIONSHIP_TYPES:
         return rel_lower
 
-    # Map common non-English or variant terms to allowed types
     mapping = {
         # Vietnamese
         "mẹ": "mother", "cha": "father", "bố": "father", "ba": "father",
@@ -129,13 +128,35 @@ def _normalize_relationship(rel_type: str) -> str:
     if rel_lower in mapping:
         return mapping[rel_lower]
 
-    # If it's already ASCII/English but not in allowed list, return as-is
-    # (LLM may use valid but unlisted terms)
     if _is_english(rel_type):
         return rel_lower
 
-    # Fallback: return original (will be caught by validation)
     return rel_type
+
+
+def _build_existing_chars_str(entities: dict, edges: list) -> str:
+    """Build existing characters context string for the learner prompt."""
+    if not entities:
+        return "(none)"
+
+    entity_parts = []
+    for name_orig, info in entities.items():
+        name_vi = info.get("name_vi", "")
+        role = info.get("role", "")
+        pronoun = info.get("pronoun", "")
+        pronoun_str = f' pronoun="{pronoun}"' if pronoun else ""
+        entity_parts.append(f"  {name_orig}" + (f" ({name_vi})" if name_vi else "") + (f" [{role}{pronoun_str}]" if role or pronoun else ""))
+
+    if edges:
+        edge_parts = []
+        for edge in edges:
+            if len(edge) >= 3:
+                from_vi = entities.get(edge[0], {}).get("name_vi", edge[0])
+                to_vi = entities.get(edge[1], {}).get("name_vi", edge[1])
+                edge_parts.append(f"  {from_vi}({edge[2]})->{to_vi}")
+        return "Entities:\n" + "\n".join(entity_parts) + "\nRelations:\n" + "\n".join(edge_parts)
+
+    return "Entities:\n" + "\n".join(entity_parts)
 
 
 def learner_node(state: TranslationState) -> dict:
@@ -144,9 +165,7 @@ def learner_node(state: TranslationState) -> dict:
     chapter_number = state["chapter_number"]
     language = state["source_language"]
 
-    # Combine all translated chunks
     full_translation = "\n\n".join(state["translated_chunks"])
-    # Also need source for term extraction
     source_text = state["source_text"]
 
     # --- 1. Extract terms + character relationships (single call) ---
@@ -156,96 +175,13 @@ def learner_node(state: TranslationState) -> dict:
     existing_characters = state.get("characters", {})
     existing_entities = existing_characters.get("entities", {})
     existing_edges = existing_characters.get("edges", [])
-    existing_chars_str = "(none)"
-    if existing_entities:
-        entity_parts = []
-        for name_orig, info in existing_entities.items():
-            name_vi = info.get("name_vi", "")
-            role = info.get("role", "")
-            pronoun = info.get("pronoun", "")
-            pronoun_str = f' pronoun="{pronoun}"' if pronoun else ""
-            entity_parts.append(f"  {name_orig}" + (f" ({name_vi})" if name_vi else "") + (f" [{role}{pronoun_str}]" if role or pronoun else ""))
-        if existing_edges:
-            edge_parts = []
-            for edge in existing_edges:
-                if len(edge) >= 3:
-                    from_vi = existing_entities.get(edge[0], {}).get("name_vi", edge[0])
-                    to_vi = existing_entities.get(edge[1], {}).get("name_vi", edge[1])
-                    edge_parts.append(f"  {from_vi}({edge[2]})->{to_vi}")
-            existing_chars_str = "Entities:\n" + "\n".join(entity_parts) + "\nRelations:\n" + "\n".join(edge_parts)
-        else:
-            existing_chars_str = "Entities:\n" + "\n".join(entity_parts)
+    existing_chars_str = _build_existing_chars_str(existing_entities, existing_edges)
 
-    learn_system_prompt = f"""You are analyzing a novel chapter. Extract important terms AND character relationships.
-
-=== TERMS ===
-STRICT CRITERIA — only include terms that meet ALL of these:
-1. Character names (people, beings with names)
-2. Place names (locations, realms, organizations with names)
-3. Special recurring terms (unique skills, cultivation levels, world-specific concepts that will appear repeatedly)
-
-EXCLUDE:
-- Common words, verbs, adjectives, descriptive phrases
-- One-off terms that appear only once or twice
-- Generic terms like "sword", "fire", "mountain" unless they are proper names
-- Translated dialogue fragments or idioms
-- Terms already in the existing glossary
-
-Existing terms (DO NOT repeat):
-{existing_terms_str}
-
-=== CHARACTERS ===
-Identify characters that appear in this chapter and their relationships to each other.
-
-EXISTING CHARACTERS (update relationships if new ones are discovered):
-{existing_chars_str}
-
-RULES FOR ENTITIES:
-- Only extract characters with PROPER NAMES (e.g. "陆远秋", "白清夏")
-- NEVER extract kinship terms or role descriptors as character names:
-  papa, mama, dad, mom, father, mother, uncle, aunt, grandma, grandpa, brother, sister,
-  爸爸, 妈妈, 父亲, 母亲, 叔叔, 阿姨, 爷爷, 奶奶, 哥哥, 姐姐, 弟弟, 妹妹,
-  teacher, student, master, servant, guard, doctor, etc.
-- These kinship/role terms describe relationships TO named characters, they are NOT characters themselves
-- If a character is only referred to as "Papa" or "Mama" without a real name being revealed, skip them
-- Only include characters that actually appear or are mentioned in this chapter
-- Assign a consistent Vietnamese pronoun for each character based on age, gender, status,
-  and relationship dynamics. Examples: "cậu", "anh ấy", "ông", "bà", "cô ấy", "chị ấy",
-  "hắn", "y", "nó", "ta", "quý ngài", "tiểu thư". Use the SAME pronoun across all chapters.
-
-RULES FOR EDGES (RELATIONSHIPS):
-- Relationship types MUST be in ENGLISH ONLY — never Vietnamese or other languages
-- Use ONLY these allowed relationship types:
-  mother, father, parent, son, daughter, child, sibling, brother, sister,
-  husband, wife, spouse, romantic interest, crush, ex,
-  friend, enemy, rival, ally,
-  master, disciple, teacher, student, classmate, colleague,
-  servant, master (employer), boss, employee,
-  acquaintance, neighbor, relative, cousin, grandparent, grandchild
-- If a relationship does not fit the list, use the closest English equivalent
-- Avoid vague relationships like "knows", "met", "connected"
-- Store each relationship ONCE — do NOT add both A→B and B→A for the same pair
-  (e.g. if you add [A, B, "mother"], do NOT also add [B, A, "son"])
-- If a character's role is unclear, use "minor"
-
-Respond with JSON ONLY (no other text):
-{{
-    "terms": {{
-        "original term": "Vietnamese translation"
-    }},
-    "characters": {{
-        "entities": {{
-            "original name": {{
-                "name_vi": "Vietnamese name",
-                "role": "protagonist | antagonist | supporting | minor",
-                "pronoun": "Vietnamese pronoun (e.g. cậu, anh ấy, cô ấy, hắn)"
-            }}
-        }},
-        "edges": [
-            ["from_original_name", "to_original_name", "relationship_type_in_english"]
-        ]
-    }}
-}}"""
+    learn_system_prompt = render_prompt(
+        "learner_extract",
+        existing_terms_str=existing_terms_str,
+        existing_chars_str=existing_chars_str,
+    )
 
     learn_user_prompt = f"""=== SOURCE TEXT ({language}) ===
 {source_text[:4000]}
@@ -283,7 +219,6 @@ Respond with JSON ONLY (no other text):
         if len(edge) < 3:
             continue
         from_char, to_char, rel_type = edge[0], edge[1], edge[2]
-        # Skip edges where from or to is a kinship term
         if _is_kinship_or_role(from_char) or _is_kinship_or_role(to_char):
             print(f"  ⚠ Skipped edge with kinship term: {from_char} -> {to_char}")
             continue
@@ -330,15 +265,11 @@ Respond with JSON ONLY (no other text):
     if not config.enable_summary:
         summary_response = ""
     else:
-        summary_system_prompt = """Write a very concise summary of this chapter in 2-3 sentences (max 50 words).
-Include ONLY: key events, main characters involved, and any important plot developments.
-Write in Vietnamese. Output ONLY the summary, nothing else."""
-
+        summary_system_prompt = render_prompt("learner_summary")
         summary_user_prompt = f"Summarize chapter {chapter_number}:\n\n{full_translation[:4000]}"
 
         try:
             summary_response = get_llm().generate(summary_system_prompt, summary_user_prompt, "learn_summary")
-
             save_chapter_summary(novel_name, chapter_number, summary_response)
 
             log_ai_call(

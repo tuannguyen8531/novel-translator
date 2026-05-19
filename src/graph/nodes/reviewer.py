@@ -16,6 +16,7 @@ from src.services.logger import log_ai_call
 from src.config import config
 from src.utils.json import parse_json_object
 from src.domain.quality import has_blocking_issues, post_check_translation
+from src.prompts import render_prompt
 
 
 def reviewer_node(state: TranslationState) -> dict:
@@ -25,22 +26,7 @@ def reviewer_node(state: TranslationState) -> dict:
     translation = state["current_translation"]
     total_chunks = len(state["chunks"])
 
-    system_prompt = """You are a professional translation editor.
-Evaluate the translation below on 4 criteria (each 0.0-1.0):
-1. completeness: All original content is translated, nothing missing
-2. naturalness: The translation reads naturally in Vietnamese
-3. consistency: Terminology is translated consistently
-4. accuracy: Meaning is preserved accurately
-
-Respond with JSON ONLY (no other text):
-{
-    "score": 0.0-1.0,
-    "feedback": "Brief feedback on what needs improvement",
-    "completeness": 0.0-1.0,
-    "naturalness": 0.0-1.0,
-    "consistency": 0.0-1.0,
-    "accuracy": 0.0-1.0
-}"""
+    system_prompt = render_prompt("reviewer")
 
     user_prompt = f"""=== SOURCE TEXT ===
 {chunk}
@@ -50,7 +36,6 @@ Respond with JSON ONLY (no other text):
 
     response = get_llm().generate(system_prompt, user_prompt, "review")
 
-    # Parse JSON response
     try:
         review_data = parse_json_object(response)
         score = float(review_data.get("score", 0.8))
