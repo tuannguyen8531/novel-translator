@@ -19,6 +19,8 @@ from src.graph.builder import build_graph
 from src.models.state import initial_state
 from src.services.logger import log_error
 from src.utils.display import print_banner, check_provider, RED, GREEN, YELLOW, DIM, RESET
+from src.utils.text import normalize_paragraph_spacing
+
 
 
 def _get_output_dir(novel_name: str) -> Path:
@@ -96,14 +98,15 @@ def translate_file(input_path: str, novel_name: str, chapter_number: int, langua
     output_file = output_dir / f"chapter_{chapter_number:03d}.txt"
 
     final_text = result.get("final_translation", "")
-    output_file.write_text(final_text, encoding="utf-8")
+    normalized_text = normalize_paragraph_spacing(final_text)
+    output_file.write_text(normalized_text, encoding="utf-8")
 
     print()
     print(f"{GREEN}{'═' * 54}")
     print(f"  ✅ Translation complete!")
     print(f"{'═' * 54}{RESET}")
     print(f"  {DIM}Output:     {output_file}{RESET}")
-    print(f"  {DIM}Length:     {len(final_text)} chars{RESET}")
+    print(f"  {DIM}Length:     {len(normalized_text)} chars{RESET}")
     print(f"  {DIM}Time:       {elapsed:.1f}s{RESET}")
     print(f"  {DIM}Chunks:     {len(result.get('chunks', []))}{RESET}")
 

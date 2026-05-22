@@ -21,6 +21,8 @@ from src.graph.builder import build_graph
 from src.models.state import initial_state
 from src.utils.progress import ProgressTracker
 from src.utils.display import print_banner, check_provider, RED, GREEN, YELLOW, DIM, RESET
+from src.utils.text import normalize_paragraph_spacing
+
 
 INPUT_DIR = Path("input")
 OUTPUT_DIR = Path("output")
@@ -176,12 +178,13 @@ def translate_file(input_path: Path, novel_name: str, chapter_number: int, langu
     output_file = output_dir / f"chapter_{chapter_number:03d}.txt"
 
     final_text = result.get("final_translation", "")
+    normalized_text = normalize_paragraph_spacing(final_text)
     new_terms_count = len(result.get("new_terms", {}))
-    output_file.write_text(final_text, encoding="utf-8")
+    output_file.write_text(normalized_text, encoding="utf-8")
 
     quality_report = {
         "chapter": chapter_number,
-        "output_chars": len(final_text),
+        "output_chars": len(normalized_text),
         "elapsed_seconds": round(elapsed, 3),
         "new_terms_count": new_terms_count,
         "new_characters_count": len(result.get("new_characters", {}).get("entities", {})),
@@ -189,7 +192,7 @@ def translate_file(input_path: Path, novel_name: str, chapter_number: int, langu
     }
     save_quality_report(novel_name, chapter_number, quality_report)
 
-    return True, len(final_text), elapsed, new_terms_count
+    return True, len(normalized_text), elapsed, new_terms_count
 
 
 def glossary_main(argv: list[str]) -> None:

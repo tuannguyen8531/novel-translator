@@ -2,6 +2,7 @@
 
 from src.domain.chunking import split_into_chunks, split_sentences
 from src.domain.language import detect_language_heuristic
+from src.utils.text import normalize_paragraph_spacing
 
 
 class TestDetectLanguageHeuristic:
@@ -93,3 +94,23 @@ class TestSplitSentences:
     def test_no_endings(self):
         result = split_sentences("just text no punctuation")
         assert result == ["just text no punctuation"]
+
+
+class TestNormalizeParagraphSpacing:
+    def test_empty_text(self):
+        assert normalize_paragraph_spacing("") == ""
+
+    def test_single_spaced_paragraphs(self):
+        text = "Paragraph 1\nParagraph 2\nParagraph 3"
+        expected = "Paragraph 1\n\nParagraph 2\n\nParagraph 3"
+        assert normalize_paragraph_spacing(text) == expected
+
+    def test_mix_of_spacing(self):
+        text = "Paragraph 1\n\nParagraph 2\nParagraph 3\n\n\nParagraph 4"
+        expected = "Paragraph 1\n\nParagraph 2\n\nParagraph 3\n\nParagraph 4"
+        assert normalize_paragraph_spacing(text) == expected
+
+    def test_whitespace_only_lines(self):
+        text = "  Paragraph 1  \n   \nParagraph 2"
+        expected = "Paragraph 1\n\nParagraph 2"
+        assert normalize_paragraph_spacing(text) == expected
