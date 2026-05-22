@@ -17,6 +17,7 @@ classifiers = [
     "Topic :: Text Processing :: Linguistic",
 ]
 dependencies = [
+    "fpdf2>=2.8.7",
     "httpx>=0.28.1",
     "langchain-core>=1.3.3",
     "langgraph>=1.1.10",
@@ -26,6 +27,8 @@ dependencies = [
 
 [project.scripts]
 translate = "translate:main"
+pack = "pack:main"
+
 
 [build-system]
 requires = ["hatchling"]

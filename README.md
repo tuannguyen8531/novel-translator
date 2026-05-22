@@ -155,6 +155,43 @@ uv run translate glossary validate my-novel
 uv run translate glossary audit my-novel
 ```
 
+### Packaging CLI (EPUB & PDF)
+
+After translating chapters, you can package them into a beautifully formatted EPUB or PDF book. This operates completely offline and does not call any LLM APIs:
+
+```bash
+# Package a novel into both EPUB and PDF
+uv run pack my-novel
+
+# Package into EPUB format only
+uv run pack my-novel -f epub
+
+# Package into PDF format only
+uv run pack my-novel -f pdf
+
+# Customize book title and author metadata
+uv run pack my-novel --title "The Great Adventure" --author "Author Name"
+
+# Specify a custom directory to save the packaged files
+uv run pack my-novel -o /path/to/save/
+
+# Enable dark mode for PDF output (charcoal background, cream/light-gray text)
+uv run pack my-novel -f pdf --dark
+```
+
+Options for `pack`:
+
+| Flag | Description |
+|------|-------------|
+| `novel` | Novel name (matches directory name in output/) |
+| `-f, --format` | Packaging format: `epub`, `pdf`, or `all` (default: `all`) |
+| `-t, --title` | Custom book title (defaults to formatted novel name) |
+| `-a, --author` | Author name in book metadata (default: `AI Translator`) |
+| `-o, --output` | Custom directory to save the output files (defaults to novel root) |
+| `--dark` | Enable dark mode for PDF output |
+
+*Note for PDF format:* The packager automatically scans the system for TrueType serif fonts supporting Vietnamese diacritics (like DejaVuSerif) to ensure correct unicode rendering. It also cleans up any residual Chinese punctuation marks (`『`, `』`, etc.) or untranslated characters.
+
 ### How it works
 
 1. Scans `input/{novel}/` for `chapter_*.txt` files
@@ -189,6 +226,7 @@ detect → context → chunk → translate → review → [retry loop] → accep
 ```
 ├── translate.py         # Batch CLI (primary entry point)
 ├── main.py              # Single-chapter CLI
+├── pack.py              # Packaging CLI (EPUB & PDF)
 ├── src/
 │   ├── config.py        # Environment-based configuration with validation
 │   ├── models/
