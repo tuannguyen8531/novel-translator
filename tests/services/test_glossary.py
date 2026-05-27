@@ -29,9 +29,13 @@ class TestGlossary:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.patcher = patch("src.services.glossary.GLOSSARY_DIR", Path(self.temp_dir.name))
         self.patcher.start()
+        self.config_patcher = patch("src.services.glossary.config")
+        self.mock_config = self.config_patcher.start()
+        self.mock_config.novel_share_dir = ""
 
     def teardown_method(self):
         self.patcher.stop()
+        self.config_patcher.stop()
         self.temp_dir.cleanup()
 
     def test_save_and_load_glossary(self):
@@ -156,3 +160,90 @@ class TestGlossary:
         save_source_language("test-novel", "")
         result = load_source_language("test-novel")
         assert result == ""
+
+
+class TestGlossaryShareDir:
+    def setup_method(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp_dir.name)
+        self.project_glossary = self.base / "glossary"
+        self.share_glossary = self.base / "share" / "my-novel"
+        self.share_glossary.mkdir(parents=True)
+
+        self.patcher_glossary_dir = patch("src.services.glossary.GLOSSARY_DIR", self.project_glossary)
+        self.patcher_glossary_dir.start()
+
+    def teardown_method(self):
+        self.patcher_glossary_dir.stop()
+        self.temp_dir.cleanup()
+
+    def test_load_from_share_when_project_missing(self):
+        share_file = self.share_glossary / "glossary.json"
+        share_file.write_text(json.dumps({"terms": {"李白": "Lý Bạch"}}), encoding="utf-8")
+
+        with patch("src.services.glossary.config") as mock_config:
+            mock_config.novel_share_dir = str(self.base / "share")
+            result = load_glossary("my-novel")
+
+        assert result == {"李白": "Lý Bạch"}
+        assert (self.project_glossary / "my-novel.json").exists()
+
+    def test_project_glossary_takes_precedence_over_share(self):
+        project_file = self.project_glossary / "my-novel.json"
+        project_file.parent.mkdir(parents=True, exist_ok=True)
+        project_file.write_text(json.dumps({"terms": {"杜甫": "Đỗ Phủ"}}), encoding="utf-8")
+
+        share_file = self.share_glossary / "glossary.json"
+        share_file.write_text(json.dumps({"terms": {"李白": "Lý Bạch"}}), encoding="utf-8")
+
+        with patch("src.services.glossary.config") as mock_config:
+            mock_config.novel_share_dir = str(self.base / "share")
+            result = load_glossary("my-novel")
+
+        assert result == {"杜甫": "Đỗ Phủ"}
+
+    def test_no_share_dir_uses_project_only(self):
+        project_file = self.project_glossary / "my-novel.json"
+        project_file.parent.mkdir(parents=True, exist_ok=True)
+        project_file.write_text(json.dumps({"terms": {"李白": "Lý Bạch"}}), encoding="utf-8")
+
+        with patch("src.services.glossary.config") as mock_config:
+            mock_config.novel_share_dir = ""
+            result = load_glossary("my-novel")
+
+        assert result == {"李白": "Lý Bạch"}
+
+    def test_share_dir_not_set_returns_empty(self):
+        with patch("src.services.glossary.config") as mock_config:
+            mock_config.novel_share_dir = ""
+            result = load_glossary("nonexistent")
+
+        assert result == {}
+
+    def test_save_syncs_to_share_dir(self):
+        with patch("src.services.glossary.config") as mock_config:
+            mock_config.novel_share_dir = str(self.base / "share")
+            save_glossary("my-novel", {"李白": "Lý Bạch"})
+
+        share_file = self.share_glossary / "glossary.json"
+        assert share_file.exists()
+        data = json.loads(share_file.read_text(encoding="utf-8"))
+        assert data["terms"] == {"李白": "Lý Bạch"}
+
+    def test_save_updates_share_on_merge(self):
+        with patch("src.services.glossary.config") as mock_config:
+            mock_config.novel_share_dir = str(self.base / "share")
+            save_glossary("my-novel", {"李白": "Lý Bạch"})
+            save_glossary("my-novel", {"杜甫": "Đỗ Phủ"})
+
+        share_file = self.share_glossary / "glossary.json"
+        data = json.loads(share_file.read_text(encoding="utf-8"))
+        assert data["terms"] == {"李白": "Lý Bạch", "杜甫": "Đỗ Phủ"}
+
+    def test_no_sync_when_share_dir_empty(self):
+        with patch("src.services.glossary.config") as mock_config:
+            mock_config.novel_share_dir = ""
+            save_glossary("my-novel", {"李白": "Lý Bạch"})
+
+        share_file = self.share_glossary / "glossary.json"
+        assert not share_file.exists()

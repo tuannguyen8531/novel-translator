@@ -63,6 +63,11 @@ REVIEW_THRESHOLD=0.7
 MAX_RETRIES=2
 ENABLE_REVIEW=false
 ENABLE_SUMMARY=false
+
+# Novel share directory (optional)
+# When set, reads from {NOVEL_SHARE_DIR}/{novel}/chapter_*.txt
+# and writes to {NOVEL_SHARE_DIR}/output/{novel}/
+NOVEL_SHARE_DIR=../share
 ```
 
 ## Usage
@@ -77,6 +82,8 @@ input/
     └── chapter_3.txt
 ```
 
+Or, if `NOVEL_SHARE_DIR` is set in `.env`, use `{NOVEL_SHARE_DIR}/{novel}/chapter_{number}.txt`.
+
 Then run:
 
 ```bash
@@ -90,13 +97,19 @@ uv run translate my-novel -l chinese
 uv run translate my-novel -p gemini -r -s
 
 # Translate a range of chapters
-uv run translate my-novel --start 5 --to 10
+uv run translate my-novel -n 5 -e 10
+
+# Translate at most 3 chapters starting from chapter 5
+uv run translate my-novel -n 5 -m 3
 
 # Resume chapter-level progress after an interrupted run
-uv run translate my-novel --resume
+uv run translate my-novel -R
 
 # Retry chapters recorded as failed
-uv run translate my-novel --failed-only
+uv run translate my-novel -F
+
+# Dry run to see what would be translated
+uv run translate my-novel -d
 
 # Verbose mode (print AI requests/responses)
 uv run translate my-novel -v
@@ -112,12 +125,13 @@ uv run translate my-novel -v
 | `-r, --review` | Enable review step |
 | `-s, --summary` | Enable chapter summary generation |
 | `-v, --verbose` | Print full AI request/response to console |
-| `--start N` | Start from chapter N |
-| `--to N` | Stop at chapter N (0 = all) |
-| `--force` | Re-translate already translated chapters |
-| `--dry-run` | List chapters to translate without running |
-| `--resume` | Skip chapters marked completed in `.progress/{novel}.json` |
-| `--failed-only` | Translate only chapters marked failed in `.progress/{novel}.json` |
+| `-n, --start N` | Start from chapter N |
+| `-e, --to N` | Stop at chapter N (0 = all) |
+| `-f, --force` | Re-translate already translated chapters |
+| `-d, --dry-run` | List chapters to translate without running |
+| `-R, --resume` | Skip chapters marked completed in `.progress/{novel}.json` |
+| `-F, --failed-only` | Translate only chapters marked failed in `.progress/{novel}.json` |
+| `-m, --limit N` | Translate at most N chapters (0 = no limit) |
 
 ### Glossary CLI
 
@@ -194,13 +208,13 @@ Options for `pack`:
 
 ### How it works
 
-1. Scans `input/{novel}/` for `chapter_*.txt` files
-2. Checks `output/{novel}/` for already-translated chapters
+1. Scans `input/{novel}/` (or `{NOVEL_SHARE_DIR}/{novel}/` if set) for `chapter_*.txt` files
+2. Checks `output/{novel}/` (or `{NOVEL_SHARE_DIR}/output/{novel}/`) for already-translated chapters
 3. Translates only missing chapters, in order
 4. Shows single-line progress: `[3/10] 30% · 45s ch · 120s total`
 5. Saves output to `output/{novel}/chapter_*.txt`
 6. Saves detected language to glossary immediately — re-running skips detection
-7. Updates glossary memory with detected language, terms, characters, relationships, and summaries
+7. Updates glossary memory with detected language, terms, characters, relationships, pronoun examples, and summaries
 8. Writes chapter quality reports to `reports/{novel}/chapter_*.json`
 9. Tracks completed/failed chapters in `.progress/{novel}.json`
 
@@ -215,7 +229,7 @@ detect → context → chunk → translate → review → [retry loop] → accep
 | Node | Purpose |
 |------|---------|
 | `detect` | Unicode heuristic → LLM fallback for language detection |
-| `context` | Load rules, glossary, last 3 chapter summaries |
+| `context` | Load rules, glossary, last 3 chapter summaries, active characters with pronoun examples |
 | `chunk` | Split text by paragraphs/sentences with overlap |
 | `translate` | LLM translation with rules + glossary + context |
 | `review` | LLM scores translation (0-1), applies deterministic quality checks, retries if below threshold |
@@ -229,6 +243,13 @@ detect → context → chunk → translate → review → [retry loop] → accep
 ├── pack.py              # Packaging CLI (EPUB & PDF)
 ├── src/
 │   ├── config.py        # Environment-based configuration with validation
+│   ├── prompts/         # LLM prompt templates ({{var}} placeholders)
+│   │   ├── __init__.py      # render_prompt() helper
+│   │   ├── translator_system.md
+│   │   ├── learner_extract.md
+│   │   ├── learner_summary.md
+│   │   ├── reviewer.md
+│   │   └── detector.md
 │   ├── models/
 │   │   └── state.py     # LangGraph TypedDict state
 │   ├── domain/          # Pure translation-domain rules (no IO/LLM)
@@ -268,6 +289,7 @@ detect → context → chunk → translate → review → [retry loop] → accep
 │   ├── domain/          # Pure translation/domain rules
 │   ├── graph/           # Graph routing and node behavior
 │   ├── models/          # Shared state/data models
+│   ├── prompts/         # Prompt template tests
 │   ├── services/        # LLM, glossary persistence, logging
 │   └── utils/           # Reusable helpers
 ├── glossary/            # Auto-generated per-novel glossaries

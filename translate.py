@@ -397,38 +397,44 @@ Examples:
         help="Print full AI request/response to console",
     )
     parser.add_argument(
-        "--start",
+        "-n", "--start",
         dest="start_chapter",
         type=int,
         default=0,
         help="Start from this chapter number",
     )
     parser.add_argument(
-        "--to",
+        "-e", "--to",
         dest="end_chapter",
         type=int,
         default=0,
         help="Stop at this chapter number (0 = all)",
     )
     parser.add_argument(
-        "--force",
+        "-f", "--force",
         action="store_true",
         help="Re-translate already translated chapters",
     )
     parser.add_argument(
-        "--dry-run",
+        "-d", "--dry-run",
         action="store_true",
         help="List chapters to translate without actually translating",
     )
     parser.add_argument(
-        "--resume",
+        "-R", "--resume",
         action="store_true",
         help="Skip chapters marked completed in .progress/{novel}.json",
     )
     parser.add_argument(
-        "--failed-only",
+        "-F", "--failed-only",
         action="store_true",
         help="Translate only chapters marked failed in .progress/{novel}.json",
+    )
+    parser.add_argument(
+        "-m", "--limit",
+        type=int,
+        default=0,
+        help="Translate at most N chapters (0 = no limit)",
     )
 
     args = parser.parse_args()
@@ -469,6 +475,9 @@ Examples:
     elif args.resume:
         completed = set(progress_state.get("completed", []))
         untranslated = [ch for ch in untranslated if ch not in completed]
+
+    if args.limit > 0:
+        untranslated = untranslated[:args.limit]
 
     if not untranslated:
         print(f"{GREEN}✓ All {len(chapters)} chapters already translated.{RESET}")

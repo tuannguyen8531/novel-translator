@@ -21,6 +21,9 @@ Structure:
     }
 }
 
+If NOVEL_SHARE_DIR is set, also checks {share_dir}/{novel}/glossary.json
+as a fallback source. If found in share dir, copies to project glossary.
+
 Character schema:
 - entities: dict of original_name -> {name_vi, role, pronoun}
   role: protagonist | antagonist | supporting | minor
@@ -32,9 +35,11 @@ Character schema:
 """
 
 import fcntl
+import shutil
 import json
 from pathlib import Path
 
+from src.config import config
 from src.domain.glossary import (
     format_recent_summaries,
     merge_character_context,
@@ -48,8 +53,36 @@ GLOSSARY_DIR = Path("glossary")
 
 
 def _glossary_path(novel_name: str) -> Path:
-    """Get path to glossary file for a novel."""
+    """Get path to glossary file for a novel (always in project glossary/)."""
     return GLOSSARY_DIR / f"{novel_name}.json"
+
+
+def _share_glossary_path(novel_name: str) -> Path | None:
+    """Get path to glossary file in share dir, if configured."""
+    if not config.novel_share_dir:
+        return None
+    return Path(config.novel_share_dir) / novel_name / "glossary.json"
+
+
+def _resolve_glossary(novel_name: str) -> Path:
+    """Resolve glossary path with share dir fallback.
+
+    Priority:
+    1. Project glossary/{novel_name}.json
+    2. Share dir {NOVEL_SHARE_DIR}/{novel}/glossary.json (copies to project if found)
+    3. Returns project path (will be created on first save)
+    """
+    project_path = _glossary_path(novel_name)
+    if project_path.exists():
+        return project_path
+
+    share_path = _share_glossary_path(novel_name)
+    if share_path and share_path.exists():
+        GLOSSARY_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(share_path, project_path)
+        return project_path
+
+    return project_path
 
 
 def _ensure_dir():
@@ -82,11 +115,13 @@ def _write_json_locked(path: Path, data: dict):
 
 def load_glossary_data(novel_name: str) -> dict:
     """Load the full glossary JSON data for a novel."""
-    return _read_json_locked(_glossary_path(novel_name))
+    return _read_json_locked(_resolve_glossary(novel_name))
 
 
 def _merge_json_locked(path: Path, updater: callable) -> dict:
     """Atomically read-modify-write JSON with exclusive lock.
+
+    After writing to the project path, copies to share dir if configured.
 
     Args:
         path: File path
@@ -105,9 +140,28 @@ def _merge_json_locked(path: Path, updater: callable) -> dict:
             f.seek(0)
             f.truncate()
             json.dump(new_data, f, ensure_ascii=False, indent=2)
-            return new_data
         finally:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+    # Sync to share dir after successful write
+    _sync_to_share(path, new_data)
+
+    return new_data
+
+
+def _sync_to_share(project_path: Path, data: dict) -> None:
+    """Copy glossary data to share dir if configured."""
+    if not config.novel_share_dir:
+        return
+
+    # Extract novel name from filename: "my-novel.json" -> "my-novel"
+    novel_name = project_path.stem
+    share_dir = Path(config.novel_share_dir) / novel_name
+    share_path = share_dir / "glossary.json"
+
+    if not share_path.exists() or share_path.resolve() != project_path.resolve():
+        share_dir.mkdir(parents=True, exist_ok=True)
+        share_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -116,14 +170,14 @@ def _merge_json_locked(path: Path, updater: callable) -> dict:
 
 def load_glossary(novel_name: str) -> dict[str, str]:
     """Load term glossary for a novel. Returns empty dict if not found."""
-    path = _glossary_path(novel_name)
+    path = _resolve_glossary(novel_name)
     data = _read_json_locked(path)
     return data.get("terms", {})
 
 
 def save_glossary(novel_name: str, terms: dict[str, str]):
     """Save/merge terms into the novel's glossary (thread-safe)."""
-    path = _glossary_path(novel_name)
+    path = _resolve_glossary(novel_name)
     _merge_json_locked(path, lambda data: {
         **data,
         "terms": {**data.get("terms", {}), **terms},
@@ -132,7 +186,7 @@ def save_glossary(novel_name: str, terms: dict[str, str]):
 
 def remove_glossary_term(novel_name: str, original: str) -> bool:
     """Remove a glossary term. Returns True if the term existed."""
-    path = _glossary_path(novel_name)
+    path = _resolve_glossary(novel_name)
     removed = False
 
     def updater(data: dict) -> dict:
@@ -148,7 +202,7 @@ def remove_glossary_term(novel_name: str, original: str) -> bool:
 
 def save_character_pronoun(novel_name: str, original_name: str, pronoun: str) -> bool:
     """Set a character pronoun. Returns True if the character existed."""
-    path = _glossary_path(novel_name)
+    path = _resolve_glossary(novel_name)
     found = False
 
     def updater(data: dict) -> dict:
@@ -168,7 +222,7 @@ def save_character_pronoun(novel_name: str, original_name: str, pronoun: str) ->
 
 def save_character(novel_name: str, original_name: str, name_vi: str = "", role: str = "") -> bool:
     """Update a character's Vietnamese name and/or role. Returns True if found."""
-    path = _glossary_path(novel_name)
+    path = _resolve_glossary(novel_name)
     found = False
 
     def updater(data: dict) -> dict:
@@ -197,7 +251,7 @@ def save_relationship(
     since_chapter: int | None = None,
 ) -> bool:
     """Add or update a relationship. Returns True when both characters exist."""
-    path = _glossary_path(novel_name)
+    path = _resolve_glossary(novel_name)
     updated = False
 
     def updater(data: dict) -> dict:
@@ -223,7 +277,7 @@ def validate_glossary(novel_name: str) -> list[str]:
 
 def load_source_language(novel_name: str) -> str:
     """Load detected source language for a novel. Returns empty string if not found."""
-    path = _glossary_path(novel_name)
+    path = _resolve_glossary(novel_name)
     data = _read_json_locked(path)
     return data.get("source_language", "")
 
@@ -232,7 +286,7 @@ def save_source_language(novel_name: str, language: str):
     """Save detected source language for a novel (thread-safe)."""
     if not language:
         return
-    path = _glossary_path(novel_name)
+    path = _resolve_glossary(novel_name)
     _merge_json_locked(path, lambda data: {
         **data,
         "source_language": language,
@@ -245,7 +299,7 @@ def save_source_language(novel_name: str, language: str):
 
 def load_chapter_summary(novel_name: str, chapter_number: int) -> str:
     """Load summary for a specific chapter. Returns empty string if not found."""
-    path = _glossary_path(novel_name)
+    path = _resolve_glossary(novel_name)
     data = _read_json_locked(path)
     summaries = data.get("chapter_summaries", {})
     return summaries.get(str(chapter_number), "")
@@ -262,7 +316,7 @@ def load_chapter_summaries_recent(
     For chapter 10 with max_count=3, loads summaries for chapters 9, 8, 7.
     Returns a formatted string ready for inclusion in prompts.
     """
-    path = _glossary_path(novel_name)
+    path = _resolve_glossary(novel_name)
     data = _read_json_locked(path)
     summaries = data.get("chapter_summaries", {})
 
@@ -271,7 +325,7 @@ def load_chapter_summaries_recent(
 
 def save_chapter_summary(novel_name: str, chapter_number: int, summary: str):
     """Save a chapter summary (thread-safe)."""
-    path = _glossary_path(novel_name)
+    path = _resolve_glossary(novel_name)
     _merge_json_locked(path, lambda data: {
         **data,
         "chapter_summaries": {**data.get("chapter_summaries", {}), str(chapter_number): summary},
@@ -295,7 +349,7 @@ def get_active_context(novel_name: str, source_text: str) -> tuple[dict, list]:
         entities: {orig_name: {"name_vi": str, "role": str}}
         edges:    [[from, to, rel_type, since_chapter], ...]
     """
-    data = _read_json_locked(_glossary_path(novel_name))
+    data = _read_json_locked(_resolve_glossary(novel_name))
     all_entities: dict = data.get("entities", {})
     all_edges: list = data.get("edges", [])
 
@@ -317,7 +371,7 @@ def save_characters_batch(novel_name: str, entities: dict, edges: list, chapter:
     if not entities and not edges:
         return
 
-    path = _glossary_path(novel_name)
+    path = _resolve_glossary(novel_name)
 
     def updater(data: dict) -> dict:
         return merge_character_context(data, entities, edges, chapter=chapter)
@@ -331,7 +385,7 @@ def save_characters_batch(novel_name: str, entities: dict, edges: list, chapter:
 
 def load_pronoun_examples(novel_name: str) -> dict[str, list[str]]:
     """Load pronoun usage examples for a novel."""
-    data = _read_json_locked(_glossary_path(novel_name))
+    data = _read_json_locked(_resolve_glossary(novel_name))
     return data.get("pronoun_examples", {})
 
 
@@ -339,7 +393,7 @@ def save_pronoun_examples(novel_name: str, examples: dict[str, list[str]]) -> No
     """Merge and save pronoun usage examples (thread-safe)."""
     if not examples:
         return
-    path = _glossary_path(novel_name)
+    path = _resolve_glossary(novel_name)
 
     def updater(data: dict) -> dict:
         existing = data.get("pronoun_examples", {})
