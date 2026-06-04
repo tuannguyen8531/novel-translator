@@ -176,7 +176,6 @@ h1 {
   margin-bottom: 2em;
 }
 p {
-  text-indent: 1.5em;
   margin-bottom: 0.8em;
   text-align: justify;
 }"""
