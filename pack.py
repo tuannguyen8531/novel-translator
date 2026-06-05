@@ -132,12 +132,13 @@ def parse_chapter_file(file_path: Path) -> tuple[str, list[str]]:
 class EPUBBuilder:
     """Pure Python EPUB generator with zero dependencies."""
 
-    def __init__(self, title: str, author: str = "AI Translator", language: str = "vi"):
+    def __init__(self, title: str, author: str = "AI Translator", language: str = "vi", cover_image: Path | None = None):
         self.title = title
         self.author = author
         self.language = language
         self.chapters = []
         self.book_id = f"urn:uuid:{uuid.uuid4()}"
+        self.cover_image = cover_image  # Path to cover image (png/jpg)
 
     def add_chapter(self, title: str, paragraphs: list[str]):
         chapter_id = f"chapter_{len(self.chapters) + 1}"
@@ -181,7 +182,33 @@ p {
 }"""
             zf.writestr("OEBPS/style.css", style_css)
 
-            # 4. OEBPS/chapter_*.xhtml
+            # 4. Cover image (if provided)
+            if self.cover_image and self.cover_image.exists():
+                suffix = self.cover_image.suffix.lower()
+                media_type = "image/png" if suffix == ".png" else "image/jpeg"
+                cover_filename = f"cover{suffix}"
+                zf.write(str(self.cover_image), f"OEBPS/{cover_filename}")
+
+                # Cover page XHTML
+                cover_xhtml = f"""<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="{self.language}">
+<head>
+  <title>Cover</title>
+  <style type="text/css">
+    body {{ margin: 0; padding: 0; text-align: center; }}
+    img {{ max-width: 100%; max-height: 100%; }}
+  </style>
+</head>
+<body>
+  <div>
+    <img src="{cover_filename}" alt="Cover"/>
+  </div>
+</body>
+</html>"""
+                zf.writestr("OEBPS/cover.xhtml", cover_xhtml)
+
+            # 5. OEBPS/chapter_*.xhtml
             for ch in self.chapters:
                 ch_html = f"""<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
@@ -196,11 +223,11 @@ p {
 </html>"""
                 zf.writestr(f"OEBPS/{ch['id']}.xhtml", ch_html)
 
-            # 5. OEBPS/toc.ncx
+            # 6. OEBPS/toc.ncx
             toc_ncx = self._build_toc_ncx()
             zf.writestr("OEBPS/toc.ncx", toc_ncx)
 
-            # 6. OEBPS/content.opf
+            # 7. OEBPS/content.opf
             content_opf = self._build_content_opf()
             zf.writestr("OEBPS/content.opf", content_opf)
 
@@ -238,6 +265,17 @@ p {
             '    <item id="style" href="style.css" media-type="text/css"/>'
         ]
         spine_items = []
+        cover_meta = ""
+
+        # Add cover image and cover page to manifest/spine
+        if self.cover_image and self.cover_image.exists():
+            suffix = self.cover_image.suffix.lower()
+            media_type = "image/png" if suffix == ".png" else "image/jpeg"
+            cover_filename = f"cover{suffix}"
+            manifest_items.append(f'    <item id="cover-image" href="{cover_filename}" media-type="{media_type}"/>')
+            manifest_items.append('    <item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>')
+            spine_items.append('    <itemref idref="cover"/>')
+            cover_meta = '\n    <meta name="cover" content="cover-image"/>'
 
         for ch in self.chapters:
             manifest_items.append(f'    <item id="{ch["id"]}" href="{ch["id"]}.xhtml" media-type="application/xhtml+xml"/>')
@@ -249,7 +287,7 @@ p {
     <dc:identifier id="BookId">{self.book_id}</dc:identifier>
     <dc:title>{html.escape(self.title)}</dc:title>
     <dc:creator opf:role="aut">{html.escape(self.author)}</dc:creator>
-    <dc:language>{self.language}</dc:language>
+    <dc:language>{self.language}</dc:language>{cover_meta}
   </metadata>
   <manifest>
 {"\n".join(manifest_items)}
@@ -431,7 +469,21 @@ def main() -> None:
     if args.format in ("epub", "all"):
         epub_file = output_dir / f"{novel_name}.epub"
         print(f"\n📦 {YELLOW}Packaging EPUB...{RESET}")
-        builder = EPUBBuilder(title=book_title, author=args.author)
+
+        # Detect cover image (illu.png or illu.jpg) in novel root directory
+        novel_root = novel_output_dir.parent
+        cover_image = None
+        for ext in (".png", ".jpg", ".jpeg"):
+            candidate = novel_root / f"illu{ext}"
+            if candidate.exists():
+                cover_image = candidate
+                break
+        if cover_image:
+            print(f"  {GREEN}✓ Cover image found: {cover_image.name}{RESET}")
+        else:
+            print(f"  {DIM}No cover image found (place illu.png or illu.jpg in {novel_root}){RESET}")
+
+        builder = EPUBBuilder(title=book_title, author=args.author, cover_image=cover_image)
         for title, paras in loaded_chapters:
             builder.add_chapter(title, paras)
         builder.write(epub_file)
