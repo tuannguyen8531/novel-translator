@@ -195,6 +195,10 @@ uv run pack my-novel -f epub
 # Package into PDF format only
 uv run pack my-novel -f pdf
 
+# Package English output from output/en/{novel}/
+uv run pack my-novel --target en
+# Writes output/my-novel.en.epub and output/my-novel.en.pdf by default
+
 # Customize book title and author metadata
 uv run pack my-novel --title "The Great Adventure" --author "Author Name"
 
@@ -213,8 +217,13 @@ Options for `pack`:
 | `-f, --format` | Packaging format: `epub`, `pdf`, or `all` (default: `all`) |
 | `-t, --title` | Custom book title (defaults to formatted novel name) |
 | `-a, --author` | Author name in book metadata (default: `AI Translator`) |
+| `--target` | Target language output to package: `vi`, `en` (default from `TARGET_LANGUAGE`, fallback `vi`) |
 | `-o, --output` | Custom directory to save the output files (defaults to novel root) |
 | `--dark` | Enable dark mode for PDF output |
+
+Packaged files are named `{novel}.{target}.epub` and `{novel}.{target}.pdf`.
+For local output, they are written outside the chapter folder under `output/`,
+for example `output/my-novel.en.epub`.
 
 *Note for PDF format:* The packager automatically scans the system for TrueType serif fonts supporting Vietnamese diacritics (like DejaVuSerif) to ensure correct unicode rendering. It also cleans up any residual Chinese punctuation marks (`『`, `』`, etc.) or untranslated characters.
 

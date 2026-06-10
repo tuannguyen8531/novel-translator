@@ -14,13 +14,31 @@ import zipfile
 from pathlib import Path
 from fpdf import FPDF
 from src.config import config
+from src.domain.target_language import SUPPORTED_TARGET_LANGUAGES, normalize_target_language
 from src.utils.display import RED, GREEN, YELLOW, DIM, RESET
 
 
-def _get_output_dir(novel_name: str) -> Path:
+def _get_output_dir(novel_name: str, target_language: str | None = None) -> Path:
+    target = normalize_target_language(target_language or config.target_language)
     if config.novel_share_dir:
-        return Path(config.novel_share_dir) / novel_name / "output"
-    return Path("output") / novel_name
+        base_dir = Path(config.novel_share_dir) / novel_name / "output"
+        return base_dir if target == "vi" else base_dir / target
+    if target == "vi":
+        return Path("output") / novel_name
+    return Path("output") / target / novel_name
+
+
+def _get_default_package_dir(novel_name: str, target_language: str | None = None) -> Path:
+    """Return the default directory where EPUB/PDF files are written."""
+    target = normalize_target_language(target_language or config.target_language)
+    if config.novel_share_dir:
+        return Path(config.novel_share_dir) / novel_name
+    return Path("output")
+
+
+def _package_file_stem(novel_name: str, target_language: str | None = None) -> str:
+    target = normalize_target_language(target_language or config.target_language)
+    return f"{novel_name}.{target}"
 
 
 def find_serif_fonts() -> tuple[str, str]:
@@ -416,6 +434,12 @@ def main() -> None:
         help="Author name in book metadata (default: AI Translator)",
     )
     parser.add_argument(
+        "--target",
+        choices=sorted(SUPPORTED_TARGET_LANGUAGES),
+        default=config.target_language,
+        help="Target language to package (default: vi)",
+    )
+    parser.add_argument(
         "-o", "--output",
         default="",
         help="Custom output directory to save EPUB/PDF",
@@ -428,9 +452,10 @@ def main() -> None:
 
     args = parser.parse_args()
     novel_name = args.novel
+    config.target_language = args.target
 
     # Get output directory of translation
-    novel_output_dir = _get_output_dir(novel_name)
+    novel_output_dir = _get_output_dir(novel_name, args.target)
     if not novel_output_dir.exists():
         print(f"{RED}✗ Translation output folder not found: {novel_output_dir}{RESET}")
         sys.exit(1)
@@ -455,8 +480,9 @@ def main() -> None:
     book_title = args.title if args.title else novel_name.replace("-", " ").title()
 
     # Determine final packaging output dir
-    output_dir = Path(args.output) if args.output else novel_output_dir.parent
+    output_dir = Path(args.output) if args.output else _get_default_package_dir(novel_name, args.target)
     output_dir.mkdir(parents=True, exist_ok=True)
+    package_stem = _package_file_stem(novel_name, args.target)
 
     # Load chapters contents
     loaded_chapters = []
@@ -467,11 +493,11 @@ def main() -> None:
 
     # Compile EPUB
     if args.format in ("epub", "all"):
-        epub_file = output_dir / f"{novel_name}.epub"
+        epub_file = output_dir / f"{package_stem}.epub"
         print(f"\n📦 {YELLOW}Packaging EPUB...{RESET}")
 
         # Detect cover image (illu.png or illu.jpg) in novel root directory
-        novel_root = novel_output_dir.parent
+        novel_root = output_dir if not args.output else _get_default_package_dir(novel_name, args.target)
         cover_image = None
         for ext in (".png", ".jpg", ".jpeg"):
             candidate = novel_root / f"illu{ext}"
@@ -483,7 +509,7 @@ def main() -> None:
         else:
             print(f"  {DIM}No cover image found (place illu.png or illu.jpg in {novel_root}){RESET}")
 
-        builder = EPUBBuilder(title=book_title, author=args.author, cover_image=cover_image)
+        builder = EPUBBuilder(title=book_title, author=args.author, language=args.target, cover_image=cover_image)
         for title, paras in loaded_chapters:
             builder.add_chapter(title, paras)
         builder.write(epub_file)
@@ -491,7 +517,7 @@ def main() -> None:
 
     # Compile PDF
     if args.format in ("pdf", "all"):
-        pdf_file = output_dir / f"{novel_name}.pdf"
+        pdf_file = output_dir / f"{package_stem}.pdf"
         print(f"\n📦 {YELLOW}Packaging PDF...{RESET}")
         font_reg, font_bold = find_serif_fonts()
         if not os.path.exists(font_reg):
