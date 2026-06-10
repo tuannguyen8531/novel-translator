@@ -34,6 +34,7 @@ class Config:
     # Translation settings
     translation_temperature: float = 0.3
     translation_max_tokens: int = 4096
+    target_language: str = "vi"
     chunk_size: int = 1500
     chunk_overlap: int = 100
     review_threshold: float = 0.7
@@ -54,6 +55,8 @@ class Config:
             raise ValueError(f"max_retries must be >= 0, got {self.max_retries}")
         if self.translation_max_tokens < 1:
             raise ValueError(f"translation_max_tokens must be >= 1, got {self.translation_max_tokens}")
+        if self.target_language not in ("vi", "en"):
+            raise ValueError(f"target_language must be one of: vi, en; got {self.target_language}")
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -69,6 +72,7 @@ class Config:
             openrouter_model=os.getenv("OPENROUTER_MODEL", "qwen/qwen3-8b"),
             translation_temperature=float(os.getenv("TRANSLATION_TEMPERATURE", "0.3")),
             translation_max_tokens=int(os.getenv("TRANSLATION_MAX_TOKENS", "4096")),
+            target_language=os.getenv("TARGET_LANGUAGE", "vi").lower(),
             chunk_size=int(os.getenv("CHUNK_SIZE", "1500")),
             chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "100")),
             review_threshold=float(os.getenv("REVIEW_THRESHOLD", "0.7")),

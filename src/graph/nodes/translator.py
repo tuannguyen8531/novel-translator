@@ -14,6 +14,7 @@ from src.services.llm import get_llm
 from src.domain.glossary import format_glossary_for_prompt, format_relationships_shorthand, format_pronoun_examples
 from src.services.logger import log_ai_call
 from src.prompts import render_prompt
+from src.domain.target_language import target_language_name
 
 
 def translator_node(state: TranslationState) -> dict:
@@ -21,6 +22,8 @@ def translator_node(state: TranslationState) -> dict:
     chunk_index = state["current_chunk_index"]
     chunk = state["chunks"][chunk_index]
     language = state["source_language"]
+    target_language = state.get("target_language", "vi")
+    target_name = target_language_name(target_language)
     retry_count = state.get("retry_count", 0)
     total_chunks = len(state["chunks"])
 
@@ -57,7 +60,9 @@ def translator_node(state: TranslationState) -> dict:
 
     system_prompt = render_prompt(
         "translator_system",
+        target_language=target_language,
         lang_name=lang_name,
+        target_name=target_name,
         translation_rules=translation_rules,
         glossary=glossary,
         characters=characters,
@@ -67,7 +72,7 @@ def translator_node(state: TranslationState) -> dict:
     )
 
     user_prompt = (
-        f"Translate the following {lang_name} text to Vietnamese (chunk {chunk_index + 1}/{total_chunks}):\n\n{chunk}"
+        f"Translate the following {lang_name} text to {target_name} (chunk {chunk_index + 1}/{total_chunks}):\n\n{chunk}"
     )
 
     translation = get_llm().generate(system_prompt, user_prompt, "translate")

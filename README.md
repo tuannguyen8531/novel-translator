@@ -1,11 +1,12 @@
 # Novel Translator
 
-CLI tool for translating web novel chapters from Chinese/Korean/Japanese to Vietnamese using LLMs.
+CLI tool for translating web novel chapters from Chinese/Korean/Japanese to Vietnamese or English using LLMs.
 
 ## Features
 
 - **Multi-provider support**: Ollama (local), Gemini, OpenRouter
 - **Auto language detection**: Unicode heuristic with LLM fallback
+- **Selectable target language**: Vietnamese (`vi`) by default, English (`en`) via CLI/env
 - **Context-aware translation**: Per-novel glossary + chapter summaries maintain consistency
 - **Quality review loop**: LLM scores translations, deterministic checks catch mechanical issues, retries below threshold
 - **Language-specific rules**: Honorifics, genre terms (xianxia, murim, isekai, regression)
@@ -55,6 +56,7 @@ OPENROUTER_API_KEY=your-key
 OPENROUTER_MODEL=qwen/qwen3-8b
 
 # Translation settings
+TARGET_LANGUAGE=vi
 TRANSLATION_TEMPERATURE=0.3
 TRANSLATION_MAX_TOKENS=4096
 CHUNK_SIZE=1500
@@ -93,6 +95,9 @@ uv run translate my-novel
 # Specify source language
 uv run translate my-novel -l chinese
 
+# Translate to English instead of Vietnamese
+uv run translate my-novel --target en
+
 # Use Gemini with review and summary
 uv run translate my-novel -p gemini -r -s
 
@@ -121,6 +126,7 @@ uv run translate my-novel -v
 |------|-------------|
 | `novel` | Novel name (matches directory in `input/`) |
 | `-l, --lang` | Source language: `chinese`, `korean`, `japanese` (auto-detect) |
+| `-t, --target` | Target language: `vi`, `en` (default from `TARGET_LANGUAGE`, fallback `vi`) |
 | `-p, --provider` | LLM provider: `ollama`, `gemini`, `openrouter` |
 | `-r, --review` | Enable review step |
 | `-s, --summary` | Enable chapter summary generation |
@@ -132,6 +138,12 @@ uv run translate my-novel -v
 | `-R, --resume` | Skip chapters marked completed in `.progress/{novel}.json` |
 | `-F, --failed-only` | Translate only chapters marked failed in `.progress/{novel}.json` |
 | `-m, --limit N` | Translate at most N chapters (0 = no limit) |
+
+For the default `vi` target, outputs stay in the legacy paths: `output/{novel}/`,
+`reports/{novel}/`, `.progress/{novel}.json`, and `glossary/{novel}.json`.
+For non-default targets such as `en`, generated data is isolated under target-specific
+paths such as `output/en/{novel}/`, `reports/en/{novel}/`, `.progress/en/{novel}.json`,
+and `glossary/{novel}.en.json`.
 
 ### Glossary CLI
 
@@ -157,7 +169,7 @@ uv run translate glossary characters my-novel
 uv run translate glossary pronoun my-novel 李明 "cậu"
 
 # Update a character name or role
-uv run translate glossary character my-novel 李明 --name-vi "Lý Minh" --role protagonist
+uv run translate glossary character my-novel 李明 --translated-name "Lý Minh" --role protagonist
 
 # Add or update a relationship
 uv run translate glossary relationship my-novel 李明 张伟 friend --since 3
@@ -209,11 +221,11 @@ Options for `pack`:
 ### How it works
 
 1. Scans `input/{novel}/` (or `{NOVEL_SHARE_DIR}/{novel}/` if set) for `chapter_*.txt` files
-2. Checks `output/{novel}/` (or `{NOVEL_SHARE_DIR}/output/{novel}/`) for already-translated chapters
+2. Checks target-specific output for already-translated chapters
 3. Translates only missing chapters, in order
 4. Shows single-line progress: `[3/10] 30% · 45s ch · 120s total`
 5. Saves output to `output/{novel}/chapter_*.txt`
-6. Saves detected language to glossary immediately — re-running skips detection
+6. Saves detected source language to glossary immediately — re-running skips detection
 7. Updates glossary memory with detected language, terms, characters, relationships, pronoun examples, and summaries
 8. Writes chapter quality reports to `reports/{novel}/chapter_*.json`
 9. Tracks completed/failed chapters in `.progress/{novel}.json`
@@ -245,10 +257,8 @@ detect → context → chunk → translate → review → [retry loop] → accep
 │   ├── config.py        # Environment-based configuration with validation
 │   ├── prompts/         # LLM prompt templates ({{var}} placeholders)
 │   │   ├── __init__.py      # render_prompt() helper
-│   │   ├── translator_system.md
-│   │   ├── learner_extract.md
-│   │   ├── learner_summary.md
-│   │   ├── reviewer.md
+│   │   ├── vi/              # Vietnamese target prompts
+│   │   ├── en/              # English target prompts
 │   │   └── detector.md
 │   ├── models/
 │   │   └── state.py     # LangGraph TypedDict state
@@ -282,7 +292,9 @@ detect → context → chunk → translate → review → [retry loop] → accep
 │       ├── display.py   # ANSI colors, banner, provider check
 │       ├── json.py      # JSON object parsing helpers
 │       └── progress.py  # Batch progress tracker
-├── rules/               # Translation rules (common + per-language)
+├── rules/               # Target-specific translation rules
+│   ├── vi/              # Vietnamese target rules
+│   └── en/              # English target rules
 ├── tests/               # Test suite grouped by application layer
 │   ├── cli/             # CLI parsing and batch workflow helpers
 │   ├── config/          # Runtime configuration

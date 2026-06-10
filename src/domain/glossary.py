@@ -9,6 +9,21 @@ MAX_PRONOUN_EXAMPLE_LENGTH = 150
 CJK_RE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]")
 
 
+def get_character_translated_name(info: dict) -> str:
+    """Return the target-language character name, accepting legacy name_vi."""
+    return info.get("translated_name") or info.get("name_vi") or ""
+
+
+def normalize_character_info(info: dict) -> dict:
+    """Normalize a character entity to the current glossary schema."""
+    normalized = {
+        "translated_name": get_character_translated_name(info),
+        "role": info.get("role", "unknown"),
+        "pronoun": info.get("pronoun", ""),
+    }
+    return normalized
+
+
 def format_glossary_for_prompt(terms: dict[str, str]) -> str:
     """Format glossary terms for inclusion in LLM prompts."""
     if not terms:
@@ -53,7 +68,7 @@ def validate_glossary_data(data: dict) -> list[str]:
             if not isinstance(info, dict):
                 issues.append(f"entity {original!r} must be an object")
                 continue
-            for key in ("name_vi", "role", "pronoun"):
+            for key in ("translated_name", "name_vi", "role", "pronoun"):
                 if key in info and not isinstance(info[key], str):
                     issues.append(f"entity {original!r}.{key} must be a string")
 
@@ -193,17 +208,22 @@ def select_active_character_context(all_entities: dict, all_edges: list, source_
 
 def merge_character_context(data: dict, entities: dict, edges: list, chapter: int = 0) -> dict:
     """Merge character entities and relationship edges into glossary data."""
-    existing_entities: dict = data.get("entities", {})
+    existing_entities: dict = {
+        name: normalize_character_info(info)
+        for name, info in data.get("entities", {}).items()
+        if isinstance(info, dict)
+    }
     for name, info in entities.items():
+        translated_name = get_character_translated_name(info)
         if name not in existing_entities:
             existing_entities[name] = {
-                "name_vi": info.get("name_vi", ""),
+                "translated_name": translated_name,
                 "role": info.get("role", "unknown"),
                 "pronoun": info.get("pronoun", ""),
             }
         else:
-            if info.get("name_vi"):
-                existing_entities[name]["name_vi"] = info["name_vi"]
+            if translated_name:
+                existing_entities[name]["translated_name"] = translated_name
             new_role = info.get("role", "")
             if new_role and new_role != "unknown":
                 existing_entities[name]["role"] = new_role
@@ -275,25 +295,25 @@ def format_relationships_shorthand(entities: dict, edges: list) -> str:
     notable_roles = {"protagonist", "antagonist", "supporting"}
     roles_parts = []
     for name, info in entities.items():
-        name_vi = info.get("name_vi") or name
+        translated_name = get_character_translated_name(info) or name
         role = info.get("role", "")
         pronoun = info.get("pronoun", "")
         if role in notable_roles or pronoun:
             tag = role
             if pronoun:
                 tag += f', pronoun="{pronoun}"'
-            roles_parts.append(f"{name_vi}[{tag}]")
+            roles_parts.append(f"{translated_name}[{tag}]")
         elif role:
-            roles_parts.append(f"{name_vi}[{role}]")
+            roles_parts.append(f"{translated_name}[{role}]")
 
     rel_parts = []
     for edge in edges:
         if len(edge) < 3:
             continue
         from_char, to_char, rel_type = edge[0], edge[1], edge[2]
-        from_vi = entities.get(from_char, {}).get("name_vi") or from_char
-        to_vi = entities.get(to_char, {}).get("name_vi") or to_char
-        rel_parts.append(f"{from_vi}({rel_type})->{to_vi}")
+        from_name = get_character_translated_name(entities.get(from_char, {})) or from_char
+        to_name = get_character_translated_name(entities.get(to_char, {})) or to_char
+        rel_parts.append(f"{from_name}({rel_type})->{to_name}")
 
     lines = ["=== CHARACTERS ==="]
     if roles_parts:
@@ -316,8 +336,8 @@ def extract_pronoun_examples(translation: str, entities: dict) -> dict[str, list
 
     for name, info in entities.items():
         pronoun = info.get("pronoun", "")
-        name_vi = info.get("name_vi", "")
-        if not pronoun or not name_vi:
+        translated_name = get_character_translated_name(info)
+        if not pronoun or not translated_name:
             continue
 
         char_examples = []
@@ -362,12 +382,12 @@ def format_pronoun_examples(entities: dict, pronoun_examples: dict[str, list[str
     for name, info in entities.items():
         if name not in pronoun_examples:
             continue
-        name_vi = info.get("name_vi") or name
+        translated_name = get_character_translated_name(info) or name
         pronoun = info.get("pronoun", "")
         if not pronoun:
             continue
 
-        parts.append(f'{name_vi} → use "{pronoun}" as third-person pronoun:')
+        parts.append(f'{translated_name} → use "{pronoun}" as third-person pronoun:')
         for example in pronoun_examples[name]:
             parts.append(f'  - "{example}"')
 

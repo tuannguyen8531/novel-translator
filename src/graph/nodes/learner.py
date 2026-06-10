@@ -13,9 +13,10 @@ from src.services.glossary import save_glossary, save_chapter_summary, save_sour
 from src.services.logger import log_ai_call, log_error
 from src.config import config
 from src.domain.terms import MIN_TERM_FREQUENCY, filter_terms_by_frequency
-from src.domain.glossary import extract_pronoun_examples
+from src.domain.glossary import extract_pronoun_examples, get_character_translated_name
 from src.utils.json import parse_json_object
 from src.prompts import render_prompt
+from src.domain.target_language import target_language_name
 
 KINSHIP_TERMS = {
     # English
@@ -141,19 +142,19 @@ def _build_existing_chars_str(entities: dict, edges: list) -> str:
 
     entity_parts = []
     for name_orig, info in entities.items():
-        name_vi = info.get("name_vi", "")
+        translated_name = get_character_translated_name(info)
         role = info.get("role", "")
         pronoun = info.get("pronoun", "")
         pronoun_str = f' pronoun="{pronoun}"' if pronoun else ""
-        entity_parts.append(f"  {name_orig}" + (f" ({name_vi})" if name_vi else "") + (f" [{role}{pronoun_str}]" if role or pronoun else ""))
+        entity_parts.append(f"  {name_orig}" + (f" ({translated_name})" if translated_name else "") + (f" [{role}{pronoun_str}]" if role or pronoun else ""))
 
     if edges:
         edge_parts = []
         for edge in edges:
             if len(edge) >= 3:
-                from_vi = entities.get(edge[0], {}).get("name_vi", edge[0])
-                to_vi = entities.get(edge[1], {}).get("name_vi", edge[1])
-                edge_parts.append(f"  {from_vi}({edge[2]})->{to_vi}")
+                from_name = get_character_translated_name(entities.get(edge[0], {})) or edge[0]
+                to_name = get_character_translated_name(entities.get(edge[1], {})) or edge[1]
+                edge_parts.append(f"  {from_name}({edge[2]})->{to_name}")
         return "Entities:\n" + "\n".join(entity_parts) + "\nRelations:\n" + "\n".join(edge_parts)
 
     return "Entities:\n" + "\n".join(entity_parts)
@@ -164,6 +165,8 @@ def learner_node(state: TranslationState) -> dict:
     novel_name = state["novel_name"]
     chapter_number = state["chapter_number"]
     language = state["source_language"]
+    target_language = state.get("target_language", "vi")
+    target_name = target_language_name(target_language)
 
     full_translation = "\n\n".join(state["translated_chunks"])
     source_text = state["source_text"]
@@ -179,6 +182,8 @@ def learner_node(state: TranslationState) -> dict:
 
     learn_system_prompt = render_prompt(
         "learner_extract",
+        target_language=target_language,
+        target_name=target_name,
         existing_terms_str=existing_terms_str,
         existing_chars_str=existing_chars_str,
     )
@@ -186,7 +191,7 @@ def learner_node(state: TranslationState) -> dict:
     learn_user_prompt = f"""=== SOURCE TEXT ({language}) ===
 {source_text[:4000]}
 
-=== VIETNAMESE TRANSLATION ===
+=== {target_name.upper()} TRANSLATION ===
 {full_translation[:4000]}"""
 
     new_terms = {}
@@ -265,7 +270,7 @@ def learner_node(state: TranslationState) -> dict:
     if not config.enable_summary:
         summary_response = ""
     else:
-        summary_system_prompt = render_prompt("learner_summary")
+        summary_system_prompt = render_prompt("learner_summary", target_language=target_language, target_name=target_name)
         summary_user_prompt = f"Summarize chapter {chapter_number}:\n\n{full_translation[:4000]}"
 
         try:

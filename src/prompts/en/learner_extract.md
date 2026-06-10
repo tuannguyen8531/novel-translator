@@ -31,12 +31,13 @@ RULES FOR ENTITIES:
 - These kinship/role terms describe relationships TO named characters, they are NOT characters themselves
 - If a character is only referred to as "Papa" or "Mama" without a real name being revealed, skip them
 - Only include characters that actually appear or are mentioned in this chapter
-- Assign a consistent Vietnamese pronoun for each character based on age, gender, status,
-  and relationship dynamics. Examples: "cậu", "anh ấy", "ông", "bà", "cô ấy", "chị ấy",
-  "hắn", "y", "nó", "ta", "quý ngài", "tiểu thư". Use the SAME pronoun across all chapters.
+- Assign a consistent English pronoun or reference style for each character based on gender,
+  status, narrative voice, and relationship dynamics. Examples: "he", "she", "they",
+  "the young master", "the lady", "the old man". Use the SAME style across all chapters.
+- Use the JSON key "translated_name" for the English rendering or romanized name to keep in the glossary.
 
 RULES FOR EDGES (RELATIONSHIPS):
-- Relationship types MUST be in ENGLISH ONLY — never Vietnamese or other languages
+- Relationship types MUST be in ENGLISH ONLY
 - Use ONLY these allowed relationship types:
   mother, father, parent, son, daughter, child, sibling, brother, sister,
   husband, wife, spouse, romantic interest, crush, ex,
@@ -53,14 +54,14 @@ RULES FOR EDGES (RELATIONSHIPS):
 Respond with JSON ONLY (no other text):
 {
     "terms": {
-        "original term": "Vietnamese translation"
+        "original term": "English translation"
     },
     "characters": {
         "entities": {
             "original name": {
-                "name_vi": "Vietnamese name",
+                "translated_name": "English or romanized name",
                 "role": "protagonist | antagonist | supporting | minor",
-                "pronoun": "Vietnamese pronoun (e.g. cậu, anh ấy, cô ấy, hắn)"
+                "pronoun": "English pronoun/reference style (e.g. he, she, they, the young master)"
             }
         },
         "edges": [

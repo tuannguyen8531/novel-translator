@@ -5,12 +5,12 @@ Each novel gets its own glossary file at glossary/{novel_name}.json.
 Structure:
 {
     "terms": {
-        "原始术语": "Bản dịch tiếng Việt",
+        "原始术语": "Target-language translation",
         "李明": "Lý Minh"
     },
     "source_language": "chinese",
     "entities": {
-        "李明": {"name_vi": "Lý Minh", "role": "protagonist"}
+        "李明": {"translated_name": "Lý Minh", "role": "protagonist"}
     },
     "edges": [
         ["李明", "张伟", "friend", 3]
@@ -22,12 +22,13 @@ Structure:
 }
 
 If NOVEL_SHARE_DIR is set, also checks {share_dir}/{novel}/glossary.json
-as a fallback source. If found in share dir, copies to project glossary.
+or glossary.{target}.json as a fallback source. If found in share dir, copies
+to project glossary.
 
 Character schema:
-- entities: dict of original_name -> {name_vi, role, pronoun}
+- entities: dict of original_name -> {translated_name, role, pronoun}
   role: protagonist | antagonist | supporting | minor
-  pronoun: Vietnamese pronoun assigned on first appearance (immutable)
+  pronoun: target-language pronoun/reference style assigned on first appearance (immutable)
 - edges: list of [from_orig, to_orig, relationship_type, since_chapter]
   Each relationship stored ONCE (no bidirectional duplication).
   Relationship types: mother, father, sibling, friend, enemy, master,
@@ -40,10 +41,12 @@ import json
 from pathlib import Path
 
 from src.config import config
+from src.domain.target_language import normalize_target_language
 from src.domain.glossary import (
     format_recent_summaries,
     merge_character_context,
     merge_pronoun_examples,
+    normalize_character_info,
     select_active_character_context,
     upsert_relationship,
     validate_glossary_data,
@@ -52,24 +55,37 @@ from src.domain.glossary import (
 GLOSSARY_DIR = Path("glossary")
 
 
+def _current_target_language() -> str:
+    target = getattr(config, "target_language", "vi")
+    if not isinstance(target, str):
+        return "vi"
+    return normalize_target_language(target)
+
+
 def _glossary_path(novel_name: str) -> Path:
     """Get path to glossary file for a novel (always in project glossary/)."""
-    return GLOSSARY_DIR / f"{novel_name}.json"
+    target = _current_target_language()
+    if target == "vi":
+        return GLOSSARY_DIR / f"{novel_name}.json"
+    return GLOSSARY_DIR / f"{novel_name}.{target}.json"
 
 
 def _share_glossary_path(novel_name: str) -> Path | None:
     """Get path to glossary file in share dir, if configured."""
     if not config.novel_share_dir:
         return None
-    return Path(config.novel_share_dir) / novel_name / "glossary.json"
+    target = _current_target_language()
+    if target == "vi":
+        return Path(config.novel_share_dir) / novel_name / "glossary.json"
+    return Path(config.novel_share_dir) / novel_name / f"glossary.{target}.json"
 
 
 def _resolve_glossary(novel_name: str) -> Path:
     """Resolve glossary path with share dir fallback.
 
     Priority:
-    1. Project glossary/{novel_name}.json
-    2. Share dir {NOVEL_SHARE_DIR}/{novel}/glossary.json (copies to project if found)
+    1. Project glossary/{novel_name}.json or glossary/{novel_name}.{target}.json
+    2. Share dir {NOVEL_SHARE_DIR}/{novel}/glossary*.json (copies to project if found)
     3. Returns project path (will be created on first save)
     """
     project_path = _glossary_path(novel_name)
@@ -78,16 +94,19 @@ def _resolve_glossary(novel_name: str) -> Path:
 
     share_path = _share_glossary_path(novel_name)
     if share_path and share_path.exists():
-        GLOSSARY_DIR.mkdir(parents=True, exist_ok=True)
+        project_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(share_path, project_path)
         return project_path
 
     return project_path
 
 
-def _ensure_dir():
+def _ensure_dir(path: Path | None = None):
     """Create glossary directory if it doesn't exist."""
-    GLOSSARY_DIR.mkdir(parents=True, exist_ok=True)
+    if path is None:
+        GLOSSARY_DIR.mkdir(parents=True, exist_ok=True)
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
 
 
 def _read_json_locked(path: Path) -> dict:
@@ -104,7 +123,7 @@ def _read_json_locked(path: Path) -> dict:
 
 def _write_json_locked(path: Path, data: dict):
     """Write JSON file with exclusive lock."""
-    _ensure_dir()
+    _ensure_dir(path)
     with open(path, "w", encoding="utf-8") as f:
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
         try:
@@ -127,7 +146,7 @@ def _merge_json_locked(path: Path, updater: callable) -> dict:
         path: File path
         updater: Function that takes existing data dict and returns updated dict
     """
-    _ensure_dir()
+    _ensure_dir(path)
     with open(path, "a+", encoding="utf-8") as f:
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
         try:
@@ -154,10 +173,15 @@ def _sync_to_share(project_path: Path, data: dict) -> None:
     if not config.novel_share_dir:
         return
 
-    # Extract novel name from filename: "my-novel.json" -> "my-novel"
-    novel_name = project_path.stem
+    # Extract novel name from filename: "my-novel.json" or "my-novel.en.json".
+    target = _current_target_language()
+    suffix = f".{target}.json"
+    if target != "vi" and project_path.name.endswith(suffix):
+        novel_name = project_path.name[:-len(suffix)]
+    else:
+        novel_name = project_path.stem
     share_dir = Path(config.novel_share_dir) / novel_name
-    share_path = share_dir / "glossary.json"
+    share_path = share_dir / "glossary.json" if target == "vi" else share_dir / f"glossary.{target}.json"
 
     if not share_path.exists() or share_path.resolve() != project_path.resolve():
         share_dir.mkdir(parents=True, exist_ok=True)
@@ -210,7 +234,7 @@ def save_character_pronoun(novel_name: str, original_name: str, pronoun: str) ->
         entities = dict(data.get("entities", {}))
         if original_name not in entities:
             return data
-        info = dict(entities[original_name])
+        info = normalize_character_info(dict(entities[original_name]))
         info["pronoun"] = pronoun
         entities[original_name] = info
         found = True
@@ -220,19 +244,26 @@ def save_character_pronoun(novel_name: str, original_name: str, pronoun: str) ->
     return found
 
 
-def save_character(novel_name: str, original_name: str, name_vi: str = "", role: str = "") -> bool:
-    """Update a character's Vietnamese name and/or role. Returns True if found."""
+def save_character(
+    novel_name: str,
+    original_name: str,
+    translated_name: str = "",
+    role: str = "",
+    name_vi: str = "",
+) -> bool:
+    """Update a character's translated name and/or role. Returns True if found."""
     path = _resolve_glossary(novel_name)
     found = False
+    name_value = translated_name or name_vi
 
     def updater(data: dict) -> dict:
         nonlocal found
         entities = dict(data.get("entities", {}))
         if original_name not in entities:
             return data
-        info = dict(entities[original_name])
-        if name_vi:
-            info["name_vi"] = name_vi
+        info = normalize_character_info(dict(entities[original_name]))
+        if name_value:
+            info["translated_name"] = name_value
         if role:
             info["role"] = role
         entities[original_name] = info
@@ -346,7 +377,7 @@ def get_active_context(novel_name: str, source_text: str) -> tuple[dict, list]:
 
     Returns:
         (entities, edges) — both filtered to active context only.
-        entities: {orig_name: {"name_vi": str, "role": str}}
+        entities: {orig_name: {"translated_name": str, "role": str}}
         edges:    [[from, to, rel_type, since_chapter], ...]
     """
     data = _read_json_locked(_resolve_glossary(novel_name))
@@ -363,7 +394,7 @@ def save_characters_batch(novel_name: str, entities: dict, edges: list, chapter:
     """Save character entities and relationship edges (thread-safe).
 
     Args:
-        entities: {orig_name: {"name_vi": str, "role": str}}
+        entities: {orig_name: {"translated_name": str, "role": str}}
         edges:    [[from, to, rel_type]] or [[from, to, rel_type, since_chapter]]
                   Each relationship should be stored ONCE (no bidirectional duplicates).
         chapter:  Current chapter number (used as since_chapter fallback).

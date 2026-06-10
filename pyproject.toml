@@ -1,14 +1,14 @@
 [project]
 name = "novel-translator"
 version = "0.1.0"
-description = "Novel translation tool: Chinese/Korean/Japanese → Vietnamese"
+description = "Novel translation tool: Chinese/Korean/Japanese → Vietnamese/English"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 authors = [
     {name = "SeventhS"}
 ]
-keywords = ["translation", "novel", "llm", "chinese", "korean", "japanese", "vietnamese"]
+keywords = ["translation", "novel", "llm", "chinese", "korean", "japanese", "vietnamese", "english"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: End Users/Desktop",

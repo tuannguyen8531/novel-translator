@@ -14,6 +14,7 @@ class TestConfig:
                 assert config.llm_provider == "ollama"
                 assert config.ollama_model == "qwen3:8b"
                 assert config.translation_temperature == 0.3
+                assert config.target_language == "vi"
                 assert config.chunk_size == 1500
                 assert config.enable_review is False
                 assert config.enable_summary is False
@@ -23,6 +24,7 @@ class TestConfig:
             "LLM_PROVIDER": "gemini",
             "GEMINI_API_KEY": "test-key",
             "CHUNK_SIZE": "2000",
+            "TARGET_LANGUAGE": "en",
             "ENABLE_REVIEW": "true",
             "ENABLE_SUMMARY": "true",
         }
@@ -31,6 +33,7 @@ class TestConfig:
                 config = Config.from_env()
                 assert config.llm_provider == "gemini"
                 assert config.gemini_api_key == "test-key"
+                assert config.target_language == "en"
                 assert config.chunk_size == 2000
                 assert config.enable_review is True
                 assert config.enable_summary is True

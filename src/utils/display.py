@@ -2,6 +2,8 @@
 
 import sys
 
+from src.domain.target_language import target_language_name
+
 RESET = "\033[0m"
 BOLD = "\033[1m"
 DIM = "\033[2m"
@@ -25,10 +27,11 @@ def _get_model_name(config) -> str:
 
 def print_banner(config) -> None:
     """Print the application banner."""
+    target_name = target_language_name(config.target_language)
     print(f"""
 {CYAN}╔══════════════════════════════════════════════════════╗
 ║         📚  Novel Translator  📚                     ║
-║    Chinese / Korean / Japanese → Vietnamese          ║
+║    Chinese / Korean / Japanese → {target_name:<19}║
 ╚══════════════════════════════════════════════════════╝{RESET}
 {DIM}Provider: {config.llm_provider} · Model: {_get_model_name(config)} · Temp: {config.translation_temperature}{RESET}
 """)

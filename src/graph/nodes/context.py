@@ -2,8 +2,8 @@
 Context Node — Load translation rules, glossary, and previous chapter summaries.
 
 Loads rules in order:
-1. rules/common.md (shared rules for all languages)
-2. rules/{language}.md (language-specific rules)
+1. rules/{target}/common.md (or legacy rules/common.md)
+2. rules/{target}/{language}.md (or legacy rules/{language}.md)
 
 For chapter summaries, only loads the last 3 chapters for conciseness.
 """
@@ -21,6 +21,7 @@ MAX_RECENT_SUMMARIES = 3  # Only keep context from last 3 chapters
 def context_node(state: TranslationState) -> dict:
     """Load all context needed for translation."""
     language = state["source_language"]
+    target_language = state.get("target_language", "vi")
     novel_name = state["novel_name"]
     chapter_number = state["chapter_number"]
 
@@ -33,11 +34,15 @@ def context_node(state: TranslationState) -> dict:
     # 1. Load translation rules (common + language-specific)
     rules_parts = []
 
-    common_rules_file = RULES_DIR / "common.md"
+    common_rules_file = RULES_DIR / target_language / "common.md"
+    if not common_rules_file.exists():
+        common_rules_file = RULES_DIR / "common.md"
     if common_rules_file.exists():
         rules_parts.append(common_rules_file.read_text(encoding="utf-8"))
 
-    lang_rules_file = RULES_DIR / f"{language}.md"
+    lang_rules_file = RULES_DIR / target_language / f"{language}.md"
+    if not lang_rules_file.exists():
+        lang_rules_file = RULES_DIR / f"{language}.md"
     if lang_rules_file.exists():
         rules_parts.append(lang_rules_file.read_text(encoding="utf-8"))
 
