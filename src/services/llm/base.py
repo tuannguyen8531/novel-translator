@@ -17,6 +17,7 @@ from src.services.logger import log_api_request_received, log_api_request_sent, 
 
 
 _SPINNER_CHARS = "⠋⠙⠹⠸⠼⠴⠦⠧"
+STRUCTURED_JSON_CALL_TYPES = {"learn", "review"}
 
 
 class _Spinner:

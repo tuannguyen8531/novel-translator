@@ -75,6 +75,39 @@ class TestLLMService:
             )
             assert result == "translated text"
 
+    def _ollama_payload_for_call(self, call_type: str) -> dict:
+        with patch("src.services.llm.ollama.config") as mock_config:
+            mock_config.ollama_base_url = "http://localhost:11434"
+            mock_config.ollama_model = "qwen3:14b"
+            provider = OllamaProvider(temperature=0.3, max_tokens=4096)
+            mock_response = MagicMock()
+            mock_response.is_success = True
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"message": {"content": "{}"}}
+
+            with patch("httpx.Client") as MockClient:
+                MockClient.return_value.post.return_value = mock_response
+                with patch("src.services.llm.base.log_api_request_sent", return_value="test-call-id"):
+                    with patch("src.services.llm.base.log_api_request_received"):
+                        provider.generate("system", "user", call_type)
+
+                return MockClient.return_value.post.call_args.kwargs["json"]
+
+    def test_ollama_structured_calls_use_json_mode_and_disable_thinking(self):
+        for call_type in ("learn", "review"):
+            payload = self._ollama_payload_for_call(call_type)
+
+            assert payload["format"] == "json"
+            assert payload["think"] is False
+            assert payload["options"]["temperature"] == 0.0
+
+    def test_ollama_translate_does_not_use_json_mode(self):
+        payload = self._ollama_payload_for_call("translate")
+
+        assert "format" not in payload
+        assert "think" not in payload
+        assert payload["options"]["temperature"] == 0.3
+
     def test_gemini_generate(self):
         with patch("src.services.llm.factory.config") as mock_config:
             result = self._mock_httpx_post(
