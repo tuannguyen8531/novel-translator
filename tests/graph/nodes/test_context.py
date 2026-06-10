@@ -15,8 +15,7 @@ def test_context_loads_target_specific_rules():
 
     with (
         patch("src.graph.nodes.context.load_glossary", return_value={}),
-        patch("src.graph.nodes.context.get_active_context", return_value=({}, [])),
-        patch("src.graph.nodes.context.load_pronoun_examples", return_value={}),
+        patch("src.graph.nodes.context.get_active_context", return_value=({}, [], [])),
     ):
         result = context_node(state)
 
@@ -36,8 +35,7 @@ def test_context_loads_vietnamese_rules_from_vi_folder():
 
     with (
         patch("src.graph.nodes.context.load_glossary", return_value={}),
-        patch("src.graph.nodes.context.get_active_context", return_value=({}, [])),
-        patch("src.graph.nodes.context.load_pronoun_examples", return_value={}),
+        patch("src.graph.nodes.context.get_active_context", return_value=({}, [], [])),
     ):
         result = context_node(state)
 

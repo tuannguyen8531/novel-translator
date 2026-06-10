@@ -19,6 +19,6 @@ Your output MUST start immediately with the first translated sentence.
 {{translation_rules}}
 {{glossary}}
 {{characters}}
-{{pronoun_examples}}
+{{address_rules}}
 {{previous_summary}}
 {{review_feedback}}

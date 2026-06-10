@@ -24,11 +24,14 @@ class TestRenderPrompt:
             target_language="vi",
             existing_terms_str="term1 → dịch 1",
             existing_chars_str="Entities:\n  李明 (Lý Minh)",
+            chapter_number="12",
         )
         assert "term1 → dịch 1" in result
         assert "李明 (Lý Minh)" in result
+        assert '"since": 12' in result
         assert "{{existing_terms_str}}" not in result
         assert "{{existing_chars_str}}" not in result
+        assert "{{chapter_number}}" not in result
 
     def test_render_missing_template_raises(self):
         with pytest.raises(FileNotFoundError, match="nonexistent"):

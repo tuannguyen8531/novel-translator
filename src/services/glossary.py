@@ -33,6 +33,8 @@ Character schema:
   Each relationship stored ONCE (no bidirectional duplication).
   Relationship types: mother, father, sibling, friend, enemy, master,
   disciple, rival, classmate, teacher, romantic interest, etc.
+- address_rules: list of {speaker, listener, self, other, since, until?, notes?}
+  Per-pair direct address/reference rules in the target language.
 """
 
 import fcntl
@@ -45,8 +47,9 @@ from src.domain.target_language import normalize_target_language
 from src.domain.glossary import (
     format_recent_summaries,
     merge_character_context,
-    merge_pronoun_examples,
     normalize_character_info,
+    normalize_glossary_data,
+    select_active_address_rules,
     select_active_character_context,
     upsert_relationship,
     validate_glossary_data,
@@ -302,6 +305,32 @@ def validate_glossary(novel_name: str) -> list[str]:
     return validate_glossary_data(load_glossary_data(novel_name))
 
 
+def clean_glossary(novel_name: str) -> dict:
+    """Normalize a glossary file and return before/after counts."""
+    path = _resolve_glossary(novel_name)
+
+    stats: dict = {}
+
+    def updater(data: dict) -> dict:
+        nonlocal stats
+        before_edges = len(data.get("edges", []))
+        before_address_rules = len(data.get("address_rules", []))
+        before_pronoun_examples = len(data.get("pronoun_examples", {}))
+        cleaned = normalize_glossary_data(data)
+        stats = {
+            "entities": len(cleaned.get("entities", {})),
+            "edges_before": before_edges,
+            "edges_after": len(cleaned.get("edges", [])),
+            "address_rules_before": before_address_rules,
+            "address_rules_after": len(cleaned.get("address_rules", [])),
+            "pronoun_examples_removed": before_pronoun_examples,
+        }
+        return cleaned
+
+    _merge_json_locked(path, updater)
+    return stats
+
+
 # ---------------------------------------------------------------------------
 # Source language
 # ---------------------------------------------------------------------------
@@ -367,7 +396,7 @@ def save_chapter_summary(novel_name: str, chapter_number: int, summary: str):
 # Characters — Entity + Edge graph
 # ---------------------------------------------------------------------------
 
-def get_active_context(novel_name: str, source_text: str) -> tuple[dict, list]:
+def get_active_context(novel_name: str, source_text: str, chapter_number: int = 0) -> tuple[dict, list, list]:
     """Load only characters and relationships relevant to the current source text.
 
     Algorithm:
@@ -376,59 +405,46 @@ def get_active_context(novel_name: str, source_text: str) -> tuple[dict, list]:
         3. Build entity dict for active + F1 characters.
 
     Returns:
-        (entities, edges) — both filtered to active context only.
+        (entities, edges, address_rules) — filtered to active context only.
         entities: {orig_name: {"translated_name": str, "role": str}}
         edges:    [[from, to, rel_type, since_chapter], ...]
+        address_rules: [{speaker, listener, self, other, since, until?, notes?}, ...]
     """
-    data = _read_json_locked(_resolve_glossary(novel_name))
+    data = normalize_glossary_data(_read_json_locked(_resolve_glossary(novel_name)))
     all_entities: dict = data.get("entities", {})
     all_edges: list = data.get("edges", [])
+    all_address_rules: list = data.get("address_rules", [])
 
     if not all_entities:
-        return {}, []
+        return {}, [], []
 
-    return select_active_character_context(all_entities, all_edges, source_text)
+    entities, edges = select_active_character_context(all_entities, all_edges, source_text)
+    address_rules = select_active_address_rules(all_address_rules, entities, chapter_number)
+    return entities, edges, address_rules
 
 
-def save_characters_batch(novel_name: str, entities: dict, edges: list, chapter: int = 0):
+def save_characters_batch(
+    novel_name: str,
+    entities: dict,
+    edges: list,
+    address_rules: list | None = None,
+    chapter: int = 0,
+):
     """Save character entities and relationship edges (thread-safe).
 
     Args:
         entities: {orig_name: {"translated_name": str, "role": str}}
         edges:    [[from, to, rel_type]] or [[from, to, rel_type, since_chapter]]
                   Each relationship should be stored ONCE (no bidirectional duplicates).
+        address_rules: Direct address/reference rules for character pairs.
         chapter:  Current chapter number (used as since_chapter fallback).
     """
-    if not entities and not edges:
+    if not entities and not edges and not address_rules:
         return
 
     path = _resolve_glossary(novel_name)
 
     def updater(data: dict) -> dict:
-        return merge_character_context(data, entities, edges, chapter=chapter)
-
-    _merge_json_locked(path, updater)
-
-
-# ---------------------------------------------------------------------------
-# Pronoun usage examples
-# ---------------------------------------------------------------------------
-
-def load_pronoun_examples(novel_name: str) -> dict[str, list[str]]:
-    """Load pronoun usage examples for a novel."""
-    data = _read_json_locked(_resolve_glossary(novel_name))
-    return data.get("pronoun_examples", {})
-
-
-def save_pronoun_examples(novel_name: str, examples: dict[str, list[str]]) -> None:
-    """Merge and save pronoun usage examples (thread-safe)."""
-    if not examples:
-        return
-    path = _resolve_glossary(novel_name)
-
-    def updater(data: dict) -> dict:
-        existing = data.get("pronoun_examples", {})
-        merged = merge_pronoun_examples(existing, examples)
-        return {**data, "pronoun_examples": merged}
+        return merge_character_context(data, entities, edges, address_rules=address_rules, chapter=chapter)
 
     _merge_json_locked(path, updater)

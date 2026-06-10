@@ -237,6 +237,7 @@ def glossary_main(argv: list[str]) -> None:
     """Manage per-novel glossary data."""
     from src.services.glossary import (
         load_glossary_data,
+        clean_glossary,
         remove_glossary_term,
         save_character,
         save_character_pronoun,
@@ -246,7 +247,8 @@ def glossary_main(argv: list[str]) -> None:
     )
 
     parser = argparse.ArgumentParser(description="Manage novel glossary data")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    public_commands = "{list,add,remove,export,characters,pronoun,character,relationship,validate,audit}"
+    subparsers = parser.add_subparsers(dest="command", required=True, metavar=public_commands)
 
     list_parser = subparsers.add_parser("list", help="List glossary terms")
     list_parser.add_argument("novel")
@@ -287,6 +289,10 @@ def glossary_main(argv: list[str]) -> None:
 
     validate_parser = subparsers.add_parser("validate", help="Validate glossary JSON")
     validate_parser.add_argument("novel")
+
+    clean_parser = subparsers.add_parser("clean", help=argparse.SUPPRESS)
+    clean_parser.add_argument("novel")
+    subparsers._choices_actions = [action for action in subparsers._choices_actions if action.dest != "clean"]
 
     audit_parser = subparsers.add_parser("audit", help="Audit translated output against glossary terms")
     audit_parser.add_argument("novel")
@@ -373,6 +379,16 @@ def glossary_main(argv: list[str]) -> None:
         for issue in issues:
             print(f"{RED}✗ {issue}{RESET}")
         sys.exit(1)
+
+    if args.command == "clean":
+        stats = clean_glossary(args.novel)
+        print(
+            f"{GREEN}✓ Cleaned glossary:{RESET} {args.novel} "
+            f"{DIM}entities={stats['entities']} edges={stats['edges_before']}→{stats['edges_after']} "
+            f"address_rules={stats['address_rules_before']}→{stats['address_rules_after']} "
+            f"pronoun_examples_removed={stats['pronoun_examples_removed']}{RESET}"
+        )
+        return
 
     if args.command == "audit":
         terms = load_glossary_data(args.novel).get("terms", {})

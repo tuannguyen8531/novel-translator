@@ -51,6 +51,15 @@ RULES FOR EDGES (RELATIONSHIPS):
   (e.g. if you add [A, B, "mother"], do NOT also add [B, A, "son"])
 - If a character's role is unclear, use "minor"
 
+RULES FOR ADDRESS RULES (ENGLISH DIRECT ADDRESS / REFERENCE STYLE):
+- Extract ONLY stable, explicit direct-address patterns between two named characters
+- Use original names for "speaker" and "listener"; never use translated or romanized names as keys
+- "self" is how the speaker refers to themselves in dialogue, when relevant (e.g. "I", "this servant")
+- "other" is how the speaker addresses/refers to the listener (e.g. "Your Highness", "Master", "my lady", first name)
+- Include a rule only when the source or translation clearly supports it; if unsure, leave it out
+- Do NOT add generic he/she/they examples here
+- Use "since": {{chapter_number}} when the pattern starts or is first confirmed in this chapter
+
 Respond with JSON ONLY (no other text):
 {
     "terms": {
@@ -66,6 +75,16 @@ Respond with JSON ONLY (no other text):
         },
         "edges": [
             ["from_original_name", "to_original_name", "relationship_type_in_english"]
+        ],
+        "address_rules": [
+            {
+                "speaker": "from_original_name",
+                "listener": "to_original_name",
+                "self": "English self-reference, if needed",
+                "other": "English address/reference for listener",
+                "since": {{chapter_number}},
+                "notes": "optional short reason or context"
+            }
         ]
     }
 }

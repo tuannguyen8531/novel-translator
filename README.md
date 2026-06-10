@@ -226,7 +226,7 @@ Options for `pack`:
 4. Shows single-line progress: `[3/10] 30% · 45s ch · 120s total`
 5. Saves output to `output/{novel}/chapter_*.txt`
 6. Saves detected source language to glossary immediately — re-running skips detection
-7. Updates glossary memory with detected language, terms, characters, relationships, pronoun examples, and summaries
+7. Updates glossary memory with detected language, terms, characters, relationships, address rules, and summaries
 8. Writes chapter quality reports to `reports/{novel}/chapter_*.json`
 9. Tracks completed/failed chapters in `.progress/{novel}.json`
 
@@ -241,7 +241,7 @@ detect → context → chunk → translate → review → [retry loop] → accep
 | Node | Purpose |
 |------|---------|
 | `detect` | Unicode heuristic → LLM fallback for language detection |
-| `context` | Load rules, glossary, last 3 chapter summaries, active characters with pronoun examples |
+| `context` | Load rules, glossary, last 3 chapter summaries, active characters with relationships and address rules |
 | `chunk` | Split text by paragraphs/sentences with overlap |
 | `translate` | LLM translation with rules + glossary + context |
 | `review` | LLM scores translation (0-1), applies deterministic quality checks, retries if below threshold |

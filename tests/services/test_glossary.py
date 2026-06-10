@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 from src.services.glossary import (
     load_glossary_data,
+    clean_glossary,
+    get_active_context,
     load_glossary,
     remove_glossary_term,
     save_glossary,
@@ -125,6 +127,29 @@ class TestGlossary:
         assert load_glossary_data("test-novel")["edges"] == [["李白", "杜甫", "friend", 2]]
         assert not save_relationship("test-novel", "李白", "missing", "enemy")
 
+    def test_save_and_load_active_address_rules(self):
+        save_characters_batch(
+            "test-novel",
+            {
+                "李白": {"translated_name": "Lý Bạch", "role": "supporting", "pronoun": "ông"},
+                "杜甫": {"translated_name": "Đỗ Phủ", "role": "supporting", "pronoun": "ông"},
+            },
+            [["李白", "杜甫", "friend"]],
+            address_rules=[
+                {"speaker": "Lý Bạch", "listener": "Đỗ Phủ", "self": "ta", "other": "huynh", "since": 2},
+                {"speaker": "Đỗ Phủ", "listener": "Lý Bạch", "self": "tôi", "other": "ngài", "since": 5},
+            ],
+            chapter=2,
+        )
+
+        entities, edges, address_rules = get_active_context("test-novel", "李白 gặp 杜甫.", chapter_number=3)
+
+        assert set(entities) == {"李白", "杜甫"}
+        assert edges == [["李白", "杜甫", "friend", 2]]
+        assert address_rules == [
+            {"speaker": "李白", "listener": "杜甫", "self": "ta", "other": "huynh", "since": 2}
+        ]
+
     def test_validate_glossary(self):
         save_glossary("test-novel", {"李白": "Lý Bạch"})
 
@@ -188,6 +213,33 @@ class TestGlossary:
 
         self.mock_config.target_language = "vi"
         assert load_glossary("test-novel") == {"李白": "Lý Bạch"}
+
+    def test_clean_glossary_normalizes_edges_and_removes_pronoun_examples(self):
+        path = Path(self.temp_dir.name) / "test-novel.json"
+        path.write_text(json.dumps({
+            "entities": {
+                "카일": {"name_vi": "Kyle", "role": "protagonist", "pronoun": "hắn"},
+                "이사벨": {"name_vi": "Isabelle", "role": "supporting", "pronoun": "cô ấy"},
+            },
+            "edges": [
+                ["카일", "이사벨", "friend", 1],
+                ["Kyle", "Isabelle", "rival", 2],
+            ],
+            "pronoun_examples": {"카일": ["Hắn đi."]},
+        }, ensure_ascii=False), encoding="utf-8")
+
+        stats = clean_glossary("test-novel")
+        data = load_glossary_data("test-novel")
+
+        assert stats["edges_before"] == 2
+        assert stats["edges_after"] == 1
+        assert stats["address_rules_before"] == 0
+        assert stats["address_rules_after"] == 0
+        assert stats["pronoun_examples_removed"] == 1
+        assert data["entities"]["카일"]["translated_name"] == "Kyle"
+        assert "name_vi" not in data["entities"]["카일"]
+        assert data["edges"] == [["카일", "이사벨", "friend", 1]]
+        assert "pronoun_examples" not in data
 
 
 class TestGlossaryShareDir:
