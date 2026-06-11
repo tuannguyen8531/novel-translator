@@ -6,12 +6,16 @@ Combines translated chapter txt files into a beautifully formatted EPUB or PDF.
 
 import argparse
 import html
+import json
 import os
 import re
 import sys
+import tempfile
 import uuid
 import zipfile
 from pathlib import Path
+from urllib.request import urlopen, Request
+from urllib.error import URLError
 from fpdf import FPDF
 from src.config import config
 from src.domain.target_language import SUPPORTED_TARGET_LANGUAGES, normalize_target_language
@@ -39,6 +43,76 @@ def _get_default_package_dir(novel_name: str, target_language: str | None = None
 def _package_file_stem(novel_name: str, target_language: str | None = None) -> str:
     target = normalize_target_language(target_language or config.target_language)
     return f"{novel_name}.{target}"
+
+
+def _get_novel_root_dir(novel_name: str) -> Path:
+    """Return the root directory for a novel (where metadata.json lives)."""
+    if config.novel_share_dir:
+        return Path(config.novel_share_dir) / novel_name
+    return Path("input") / novel_name
+
+
+def load_metadata(novel_name: str) -> dict:
+    """Load metadata.json from the novel root directory.
+
+    Returns an empty dict if the file doesn't exist or is invalid.
+    """
+    metadata_path = _get_novel_root_dir(novel_name) / "metadata.json"
+    if not metadata_path.exists():
+        return {}
+    try:
+        return json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def resolve_book_title(metadata: dict, target_language: str, fallback_novel_name: str) -> str:
+    """Resolve book title from metadata with target-language fallback chain.
+
+    Priority: translated[target] -> original title -> formatted novel name.
+    """
+    translated = metadata.get("translated", {})
+    target = normalize_target_language(target_language)
+    if target in translated and translated[target]:
+        return translated[target]
+    if metadata.get("title"):
+        return metadata["title"]
+    return fallback_novel_name.replace("-", " ").title()
+
+
+def resolve_cover_image(metadata: dict) -> Path | None:
+    """Resolve cover image from metadata.
+
+    Supports web URLs (downloaded to a temp file) and local file paths.
+    Returns the Path to the image or None if unavailable.
+    """
+    illustration_url = metadata.get("illustration_url", "")
+    if not illustration_url:
+        return None
+
+    # Local file path
+    if not illustration_url.startswith(("http://", "https://")):
+        local_path = Path(illustration_url)
+        return local_path if local_path.exists() else None
+
+    # Web URL — download to temp file
+    try:
+        req = Request(illustration_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(req, timeout=30) as resp:
+            content_type = resp.headers.get("Content-Type", "")
+            if "png" in content_type:
+                suffix = ".png"
+            elif "webp" in content_type:
+                suffix = ".webp"
+            else:
+                suffix = ".jpg"
+
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="novel_cover_")
+            tmp.write(resp.read())
+            tmp.close()
+            return Path(tmp.name)
+    except (URLError, OSError):
+        return None
 
 
 def find_serif_fonts() -> tuple[str, str]:
@@ -476,8 +550,24 @@ def main() -> None:
     sorted_chapters = sorted(chapter_files.items())
     print(f"{GREEN}✓ Found {len(sorted_chapters)} translated chapters.{RESET}")
 
-    # Determine title
-    book_title = args.title if args.title else novel_name.replace("-", " ").title()
+    # Load metadata and resolve book info
+    metadata = load_metadata(novel_name)
+    book_title = args.title if args.title else resolve_book_title(metadata, args.target, novel_name)
+    book_author = args.author if args.author != "AI Translator" else metadata.get("author", args.author)
+
+    # Resolve cover image from metadata
+    cover_image = resolve_cover_image(metadata)
+    downloaded_cover = cover_image and str(cover_image).startswith(tempfile.gettempdir())
+
+    if cover_image:
+        print(f"{GREEN}✓ Cover image: {cover_image.name}{RESET}")
+    elif metadata.get("illustration_url"):
+        print(f"{YELLOW}⚠ Could not load cover image from: {metadata['illustration_url']}{RESET}")
+    else:
+        print(f"{DIM}No cover image (set illustration_url in metadata.json){RESET}")
+
+    print(f"{DIM}📖 Title: {book_title}{RESET}")
+    print(f"{DIM}✍  Author: {book_author}{RESET}")
 
     # Determine final packaging output dir
     output_dir = Path(args.output) if args.output else _get_default_package_dir(novel_name, args.target)
@@ -491,50 +581,42 @@ def main() -> None:
         title, paragraphs = parse_chapter_file(path)
         loaded_chapters.append((title, paragraphs))
 
-    # Compile EPUB
-    if args.format in ("epub", "all"):
-        epub_file = output_dir / f"{package_stem}.epub"
-        print(f"\n📦 {YELLOW}Packaging EPUB...{RESET}")
+    try:
+        # Compile EPUB
+        if args.format in ("epub", "all"):
+            epub_file = output_dir / f"{package_stem}.epub"
+            print(f"\n📦 {YELLOW}Packaging EPUB...{RESET}")
 
-        # Detect cover image (illu.png or illu.jpg) in novel root directory
-        novel_root = output_dir if not args.output else _get_default_package_dir(novel_name, args.target)
-        cover_image = None
-        for ext in (".png", ".jpg", ".jpeg"):
-            candidate = novel_root / f"illu{ext}"
-            if candidate.exists():
-                cover_image = candidate
-                break
-        if cover_image:
-            print(f"  {GREEN}✓ Cover image found: {cover_image.name}{RESET}")
-        else:
-            print(f"  {DIM}No cover image found (place illu.png or illu.jpg in {novel_root}){RESET}")
-
-        builder = EPUBBuilder(title=book_title, author=args.author, language=args.target, cover_image=cover_image)
-        for title, paras in loaded_chapters:
-            builder.add_chapter(title, paras)
-        builder.write(epub_file)
-        print(f"  {GREEN}✓ EPUB file saved to: {epub_file}{RESET}")
-
-    # Compile PDF
-    if args.format in ("pdf", "all"):
-        pdf_file = output_dir / f"{package_stem}.pdf"
-        print(f"\n📦 {YELLOW}Packaging PDF...{RESET}")
-        font_reg, font_bold = find_serif_fonts()
-        if not os.path.exists(font_reg):
-            print(f"  {RED}⚠ Warning: System DejaVuSerif fonts not found. Standard PDF fallback may crash on Vietnamese accents.{RESET}")
-
-        try:
-            pdf = NovelPDF(title=book_title, author=args.author, font_reg=font_reg, font_bold=font_bold, dark_mode=args.dark)
-            pdf.create_cover()
+            builder = EPUBBuilder(title=book_title, author=book_author, language=args.target, cover_image=cover_image)
             for title, paras in loaded_chapters:
-                pdf.add_chapter(title, paras)
-            pdf.output(str(pdf_file))
-            print(f"  {GREEN}✓ PDF file saved to: {pdf_file}{RESET}")
-        except Exception as e:
-            print(f"  {RED}✗ PDF generation failed: {e}{RESET}")
-            sys.exit(1)
+                builder.add_chapter(title, paras)
+            builder.write(epub_file)
+            print(f"  {GREEN}✓ EPUB file saved to: {epub_file}{RESET}")
 
-    print(f"\n{GREEN}🎉 Packaging complete!{RESET}\n")
+        # Compile PDF
+        if args.format in ("pdf", "all"):
+            pdf_file = output_dir / f"{package_stem}.pdf"
+            print(f"\n📦 {YELLOW}Packaging PDF...{RESET}")
+            font_reg, font_bold = find_serif_fonts()
+            if not os.path.exists(font_reg):
+                print(f"  {RED}⚠ Warning: System DejaVuSerif fonts not found. Standard PDF fallback may crash on Vietnamese accents.{RESET}")
+
+            try:
+                pdf = NovelPDF(title=book_title, author=book_author, font_reg=font_reg, font_bold=font_bold, dark_mode=args.dark)
+                pdf.create_cover()
+                for title, paras in loaded_chapters:
+                    pdf.add_chapter(title, paras)
+                pdf.output(str(pdf_file))
+                print(f"  {GREEN}✓ PDF file saved to: {pdf_file}{RESET}")
+            except Exception as e:
+                print(f"  {RED}✗ PDF generation failed: {e}{RESET}")
+                sys.exit(1)
+
+        print(f"\n{GREEN}🎉 Packaging complete!{RESET}\n")
+    finally:
+        # Clean up downloaded cover image
+        if downloaded_cover and cover_image and cover_image.exists():
+            cover_image.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

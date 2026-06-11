@@ -1,7 +1,16 @@
+import json
 from pathlib import Path
 from unittest.mock import patch
 
-from pack import _get_default_package_dir, _get_output_dir, _package_file_stem
+from pack import (
+    _get_default_package_dir,
+    _get_novel_root_dir,
+    _get_output_dir,
+    _package_file_stem,
+    load_metadata,
+    resolve_book_title,
+    resolve_cover_image,
+)
 
 
 def test_pack_output_dir_defaults_to_legacy_vietnamese_path():
@@ -50,3 +59,97 @@ def test_pack_file_stem_includes_target_language():
 
         assert _package_file_stem("my-novel") == "my-novel.vi"
         assert _package_file_stem("my-novel", "en") == "my-novel.en"
+
+
+# --- _get_novel_root_dir ---
+
+
+def test_novel_root_dir_with_share_dir():
+    with patch("pack.config") as mock_config:
+        mock_config.novel_share_dir = "/share"
+        assert _get_novel_root_dir("my-novel") == Path("/share") / "my-novel"
+
+
+def test_novel_root_dir_without_share_dir():
+    with patch("pack.config") as mock_config:
+        mock_config.novel_share_dir = ""
+        assert _get_novel_root_dir("my-novel") == Path("input") / "my-novel"
+
+
+# --- load_metadata ---
+
+
+def test_load_metadata_reads_json(tmp_path):
+    metadata = {"title": "Test Title", "author": "Author"}
+    novel_dir = tmp_path / "my-novel"
+    novel_dir.mkdir()
+    (novel_dir / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+
+    with patch("pack.config") as mock_config:
+        mock_config.novel_share_dir = str(tmp_path)
+        result = load_metadata("my-novel")
+
+    assert result == metadata
+
+
+def test_load_metadata_returns_empty_dict_when_missing():
+    with patch("pack.config") as mock_config:
+        mock_config.novel_share_dir = "/nonexistent"
+        assert load_metadata("no-such-novel") == {}
+
+
+def test_load_metadata_returns_empty_dict_on_invalid_json(tmp_path):
+    novel_dir = tmp_path / "my-novel"
+    novel_dir.mkdir()
+    (novel_dir / "metadata.json").write_text("not json", encoding="utf-8")
+
+    with patch("pack.config") as mock_config:
+        mock_config.novel_share_dir = str(tmp_path)
+        assert load_metadata("my-novel") == {}
+
+
+# --- resolve_book_title ---
+
+
+def test_resolve_title_uses_translated_name_for_target():
+    metadata = {
+        "title": "原标题",
+        "translated": {"vi": "Tiêu đề", "en": "English Title"},
+    }
+    assert resolve_book_title(metadata, "en", "fallback") == "English Title"
+    assert resolve_book_title(metadata, "vi", "fallback") == "Tiêu đề"
+
+
+def test_resolve_title_falls_back_to_original():
+    metadata = {"title": "原标题", "translated": {}}
+    assert resolve_book_title(metadata, "en", "fallback") == "原标题"
+
+
+def test_resolve_title_falls_back_to_novel_name():
+    assert resolve_book_title({}, "en", "my-novel") == "My Novel"
+
+
+def test_resolve_title_skips_empty_translated():
+    metadata = {"title": "原标题", "translated": {"en": ""}}
+    assert resolve_book_title(metadata, "en", "fallback") == "原标题"
+
+
+# --- resolve_cover_image ---
+
+
+def test_resolve_cover_local_path(tmp_path):
+    cover = tmp_path / "cover.jpg"
+    cover.write_bytes(b"\xff\xd8")
+    metadata = {"illustration_url": str(cover)}
+    result = resolve_cover_image(metadata)
+    assert result == cover
+
+
+def test_resolve_cover_local_path_missing():
+    metadata = {"illustration_url": "/nonexistent/cover.jpg"}
+    assert resolve_cover_image(metadata) is None
+
+
+def test_resolve_cover_no_url():
+    assert resolve_cover_image({}) is None
+    assert resolve_cover_image({"illustration_url": ""}) is None
