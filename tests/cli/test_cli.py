@@ -150,6 +150,7 @@ class TestFindUntranslated:
         with patch("translate.OUTPUT_DIR", self.base / "output"), \
              patch("translate.config") as mock_config:
             mock_config.novel_share_dir = ""
+            mock_config.target_language = "vi"
             result = find_untranslated("my-novel", chapters)
         assert result == [1, 2, 3]
 
@@ -162,6 +163,7 @@ class TestFindUntranslated:
         with patch("translate.OUTPUT_DIR", self.base / "output"), \
              patch("translate.config") as mock_config:
             mock_config.novel_share_dir = ""
+            mock_config.target_language = "vi"
             result = find_untranslated("my-novel", chapters)
         assert result == [2, 3]
 
@@ -173,8 +175,26 @@ class TestFindUntranslated:
         with patch("translate.OUTPUT_DIR", self.base / "output"), \
              patch("translate.config") as mock_config:
             mock_config.novel_share_dir = ""
+            mock_config.target_language = "vi"
             result = find_untranslated("my-novel", chapters)
         assert result == []
+
+    def test_target_language_uses_separate_output_dir(self):
+        self._create_input("my-novel", [1, 2])
+        self._create_output("my-novel", [1])
+        en_output = self.base / "output" / "en" / "my-novel" / "chapter_002.txt"
+        en_output.parent.mkdir(parents=True, exist_ok=True)
+        en_output.write_text("translated", encoding="utf-8")
+
+        chapters = {1: self.base / "input/my-novel/chapter_1.txt",
+                    2: self.base / "input/my-novel/chapter_2.txt"}
+        with patch("translate.OUTPUT_DIR", self.base / "output"), \
+             patch("translate.config") as mock_config:
+            mock_config.novel_share_dir = ""
+            mock_config.target_language = "vi"
+            result = find_untranslated("my-novel", chapters, target_language="en")
+
+        assert result == [1]
 
 
 class TestDryRun:
@@ -198,6 +218,7 @@ class TestDryRun:
             patch("translate.check_provider") as mock_check_provider,
         ):
             mock_config.novel_share_dir = ""
+            mock_config.target_language = "vi"
             translate_main()
 
         mock_check_provider.assert_not_called()
@@ -215,9 +236,21 @@ class TestProgressState:
         self.temp_dir.cleanup()
 
     def test_save_and_load_progress_normalizes_lists(self):
-        with patch("translate.PROGRESS_DIR", self.base / ".progress"):
+        with patch("translate.PROGRESS_DIR", self.base / ".progress"), \
+             patch("translate.config") as mock_config:
+            mock_config.target_language = "vi"
             save_progress("my-novel", {"completed": [2, 1, 2], "failed": [3, 3]})
             assert load_progress("my-novel") == {"completed": [1, 2], "failed": [3]}
+
+    def test_target_language_uses_separate_progress_file(self):
+        with patch("translate.PROGRESS_DIR", self.base / ".progress"), \
+             patch("translate.config") as mock_config:
+            mock_config.target_language = "vi"
+            save_progress("my-novel", {"completed": [1], "failed": []})
+            save_progress("my-novel", {"completed": [2], "failed": []}, target_language="en")
+
+            assert load_progress("my-novel") == {"completed": [1], "failed": []}
+            assert load_progress("my-novel", target_language="en") == {"completed": [2], "failed": []}
 
 
 class TestQualityReport:
@@ -252,6 +285,7 @@ class TestQualityReport:
             patch("translate.config") as mock_config,
         ):
             mock_config.novel_share_dir = ""
+            mock_config.target_language = "vi"
             success, out_chars, elapsed, new_terms_count = translate_file(
                 self.input_path,
                 "my-novel",
@@ -267,6 +301,7 @@ class TestQualityReport:
 
         report = json.loads((self.base / "reports" / "my-novel" / "chapter_001.json").read_text(encoding="utf-8"))
         assert report["chapter"] == 1
+        assert report["target_language"] == "vi"
         assert report["new_terms_count"] == 1
         assert report["new_characters_count"] == 1
         assert report["chunks"][0]["score"] == 0.9
@@ -303,8 +338,8 @@ class TestGlossaryCli:
         glossary_file.write_text(json.dumps({
             "terms": {"李白": "Lý Bạch"},
             "entities": {
-                "李白": {"name_vi": "Lý Bạch", "role": "minor", "pronoun": ""},
-                "杜甫": {"name_vi": "Đỗ Phủ", "role": "supporting", "pronoun": ""},
+                "李白": {"translated_name": "Lý Bạch", "role": "minor", "pronoun": ""},
+                "杜甫": {"translated_name": "Đỗ Phủ", "role": "supporting", "pronoun": ""},
             },
             "edges": [],
         }, ensure_ascii=False), encoding="utf-8")
@@ -319,7 +354,7 @@ class TestGlossaryCli:
         with (
             patch("sys.argv", [
                 "translate", "glossary", "character", "my-novel", "李白",
-                "--name-vi", "Lý Thái Bạch", "--role", "supporting",
+                "--translated-name", "Lý Thái Bạch", "--role", "supporting",
             ]),
             patch("src.services.glossary.GLOSSARY_DIR", glossary_dir),
         ):
@@ -352,7 +387,7 @@ class TestGlossaryCli:
 
         data = json.loads(glossary_file.read_text(encoding="utf-8"))
         output = capsys.readouterr().out
-        assert data["entities"]["李白"]["name_vi"] == "Lý Thái Bạch"
+        assert data["entities"]["李白"]["translated_name"] == "Lý Thái Bạch"
         assert data["entities"]["李白"]["role"] == "supporting"
         assert data["edges"] == [["李白", "杜甫", "friend", 1]]
         assert "Glossary valid" in output

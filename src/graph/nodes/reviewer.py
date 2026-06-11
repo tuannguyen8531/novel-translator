@@ -3,7 +3,7 @@ Reviewer Node — Evaluate translation quality and decide whether to retry.
 
 Scoring criteria:
 - Completeness: all content from source is present
-- Naturalness: reads naturally in Vietnamese
+- Naturalness: reads naturally in the target language
 - Consistency: follows glossary terms
 - Accuracy: meaning preserved correctly
 """
@@ -17,6 +17,7 @@ from src.config import config
 from src.utils.json import parse_json_object
 from src.domain.quality import has_blocking_issues, post_check_translation
 from src.prompts import render_prompt
+from src.domain.target_language import target_language_name
 
 
 def reviewer_node(state: TranslationState) -> dict:
@@ -25,8 +26,10 @@ def reviewer_node(state: TranslationState) -> dict:
     chunk = state["chunks"][chunk_index]
     translation = state["current_translation"]
     total_chunks = len(state["chunks"])
+    target_language = state.get("target_language", "vi")
+    target_name = target_language_name(target_language)
 
-    system_prompt = render_prompt("reviewer")
+    system_prompt = render_prompt("reviewer", target_language=target_language, target_name=target_name)
 
     user_prompt = f"""=== SOURCE TEXT ===
 {chunk}

@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 from src.services.glossary import (
     load_glossary_data,
+    clean_glossary,
+    get_active_context,
     load_glossary,
     remove_glossary_term,
     save_glossary,
@@ -32,6 +34,7 @@ class TestGlossary:
         self.config_patcher = patch("src.services.glossary.config")
         self.mock_config = self.config_patcher.start()
         self.mock_config.novel_share_dir = ""
+        self.mock_config.target_language = "vi"
 
     def teardown_method(self):
         self.patcher.stop()
@@ -72,7 +75,7 @@ class TestGlossary:
     def test_save_character_pronoun(self):
         save_characters_batch(
             "test-novel",
-            {"李白": {"name_vi": "Lý Bạch", "role": "supporting", "pronoun": ""}},
+            {"李白": {"translated_name": "Lý Bạch", "role": "supporting", "pronoun": ""}},
             [],
         )
 
@@ -86,14 +89,26 @@ class TestGlossary:
     def test_save_character_updates_name_and_role(self):
         save_characters_batch(
             "test-novel",
-            {"李白": {"name_vi": "Lý Bạch", "role": "minor", "pronoun": ""}},
+            {"李白": {"translated_name": "Lý Bạch", "role": "minor", "pronoun": ""}},
             [],
         )
 
-        assert save_character("test-novel", "李白", name_vi="Lý Thái Bạch", role="supporting")
+        assert save_character("test-novel", "李白", translated_name="Lý Thái Bạch", role="supporting")
         data = load_glossary_data("test-novel")
-        assert data["entities"]["李白"]["name_vi"] == "Lý Thái Bạch"
+        assert data["entities"]["李白"]["translated_name"] == "Lý Thái Bạch"
         assert data["entities"]["李白"]["role"] == "supporting"
+
+    def test_save_character_accepts_legacy_name_vi_argument(self):
+        save_characters_batch(
+            "test-novel",
+            {"李白": {"translated_name": "Lý Bạch", "role": "minor", "pronoun": ""}},
+            [],
+        )
+
+        assert save_character("test-novel", "李白", name_vi="Lý Thái Bạch")
+        data = load_glossary_data("test-novel")
+        assert data["entities"]["李白"]["translated_name"] == "Lý Thái Bạch"
+        assert "name_vi" not in data["entities"]["李白"]
 
     def test_save_character_missing_character(self):
         assert not save_character("test-novel", "missing", role="supporting")
@@ -102,8 +117,8 @@ class TestGlossary:
         save_characters_batch(
             "test-novel",
             {
-                "李白": {"name_vi": "Lý Bạch", "role": "supporting", "pronoun": ""},
-                "杜甫": {"name_vi": "Đỗ Phủ", "role": "supporting", "pronoun": ""},
+                "李白": {"translated_name": "Lý Bạch", "role": "supporting", "pronoun": ""},
+                "杜甫": {"translated_name": "Đỗ Phủ", "role": "supporting", "pronoun": ""},
             },
             [],
         )
@@ -111,6 +126,29 @@ class TestGlossary:
         assert save_relationship("test-novel", "李白", "杜甫", "friend", since_chapter=2)
         assert load_glossary_data("test-novel")["edges"] == [["李白", "杜甫", "friend", 2]]
         assert not save_relationship("test-novel", "李白", "missing", "enemy")
+
+    def test_save_and_load_active_address_rules(self):
+        save_characters_batch(
+            "test-novel",
+            {
+                "李白": {"translated_name": "Lý Bạch", "role": "supporting", "pronoun": "ông"},
+                "杜甫": {"translated_name": "Đỗ Phủ", "role": "supporting", "pronoun": "ông"},
+            },
+            [["李白", "杜甫", "friend"]],
+            address_rules=[
+                {"speaker": "Lý Bạch", "listener": "Đỗ Phủ", "self": "ta", "other": "huynh", "since": 2},
+                {"speaker": "Đỗ Phủ", "listener": "Lý Bạch", "self": "tôi", "other": "ngài", "since": 5},
+            ],
+            chapter=2,
+        )
+
+        entities, edges, address_rules = get_active_context("test-novel", "李白 gặp 杜甫.", chapter_number=3)
+
+        assert set(entities) == {"李白", "杜甫"}
+        assert edges == [["李白", "杜甫", "friend", 2]]
+        assert address_rules == [
+            {"speaker": "李白", "listener": "杜甫", "self": "ta", "other": "huynh", "since": 2}
+        ]
 
     def test_validate_glossary(self):
         save_glossary("test-novel", {"李白": "Lý Bạch"})
@@ -161,6 +199,48 @@ class TestGlossary:
         result = load_source_language("test-novel")
         assert result == ""
 
+    def test_target_language_uses_separate_glossary_file(self):
+        self.mock_config.target_language = "vi"
+        save_glossary("test-novel", {"李白": "Lý Bạch"})
+
+        self.mock_config.target_language = "en"
+        save_glossary("test-novel", {"李白": "Li Bai"})
+
+        assert (Path(self.temp_dir.name) / "test-novel.json").exists()
+        assert (Path(self.temp_dir.name) / "test-novel.en.json").exists()
+
+        assert load_glossary("test-novel") == {"李白": "Li Bai"}
+
+        self.mock_config.target_language = "vi"
+        assert load_glossary("test-novel") == {"李白": "Lý Bạch"}
+
+    def test_clean_glossary_normalizes_edges_and_removes_pronoun_examples(self):
+        path = Path(self.temp_dir.name) / "test-novel.json"
+        path.write_text(json.dumps({
+            "entities": {
+                "카일": {"name_vi": "Kyle", "role": "protagonist", "pronoun": "hắn"},
+                "이사벨": {"name_vi": "Isabelle", "role": "supporting", "pronoun": "cô ấy"},
+            },
+            "edges": [
+                ["카일", "이사벨", "friend", 1],
+                ["Kyle", "Isabelle", "rival", 2],
+            ],
+            "pronoun_examples": {"카일": ["Hắn đi."]},
+        }, ensure_ascii=False), encoding="utf-8")
+
+        stats = clean_glossary("test-novel")
+        data = load_glossary_data("test-novel")
+
+        assert stats["edges_before"] == 2
+        assert stats["edges_after"] == 1
+        assert stats["address_rules_before"] == 0
+        assert stats["address_rules_after"] == 0
+        assert stats["pronoun_examples_removed"] == 1
+        assert data["entities"]["카일"]["translated_name"] == "Kyle"
+        assert "name_vi" not in data["entities"]["카일"]
+        assert data["edges"] == [["카일", "이사벨", "friend", 1]]
+        assert "pronoun_examples" not in data
+
 
 class TestGlossaryShareDir:
     def setup_method(self):
@@ -183,6 +263,7 @@ class TestGlossaryShareDir:
 
         with patch("src.services.glossary.config") as mock_config:
             mock_config.novel_share_dir = str(self.base / "share")
+            mock_config.target_language = "vi"
             result = load_glossary("my-novel")
 
         assert result == {"李白": "Lý Bạch"}
@@ -198,6 +279,7 @@ class TestGlossaryShareDir:
 
         with patch("src.services.glossary.config") as mock_config:
             mock_config.novel_share_dir = str(self.base / "share")
+            mock_config.target_language = "vi"
             result = load_glossary("my-novel")
 
         assert result == {"杜甫": "Đỗ Phủ"}
@@ -209,6 +291,7 @@ class TestGlossaryShareDir:
 
         with patch("src.services.glossary.config") as mock_config:
             mock_config.novel_share_dir = ""
+            mock_config.target_language = "vi"
             result = load_glossary("my-novel")
 
         assert result == {"李白": "Lý Bạch"}
@@ -216,6 +299,7 @@ class TestGlossaryShareDir:
     def test_share_dir_not_set_returns_empty(self):
         with patch("src.services.glossary.config") as mock_config:
             mock_config.novel_share_dir = ""
+            mock_config.target_language = "vi"
             result = load_glossary("nonexistent")
 
         assert result == {}
@@ -223,6 +307,7 @@ class TestGlossaryShareDir:
     def test_save_syncs_to_share_dir(self):
         with patch("src.services.glossary.config") as mock_config:
             mock_config.novel_share_dir = str(self.base / "share")
+            mock_config.target_language = "vi"
             save_glossary("my-novel", {"李白": "Lý Bạch"})
 
         share_file = self.share_glossary / "glossary.json"
@@ -233,6 +318,7 @@ class TestGlossaryShareDir:
     def test_save_updates_share_on_merge(self):
         with patch("src.services.glossary.config") as mock_config:
             mock_config.novel_share_dir = str(self.base / "share")
+            mock_config.target_language = "vi"
             save_glossary("my-novel", {"李白": "Lý Bạch"})
             save_glossary("my-novel", {"杜甫": "Đỗ Phủ"})
 
@@ -243,6 +329,7 @@ class TestGlossaryShareDir:
     def test_no_sync_when_share_dir_empty(self):
         with patch("src.services.glossary.config") as mock_config:
             mock_config.novel_share_dir = ""
+            mock_config.target_language = "vi"
             save_glossary("my-novel", {"李白": "Lý Bạch"})
 
         share_file = self.share_glossary / "glossary.json"

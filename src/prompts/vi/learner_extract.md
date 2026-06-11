@@ -50,6 +50,15 @@ RULES FOR EDGES (RELATIONSHIPS):
   (e.g. if you add [A, B, "mother"], do NOT also add [B, A, "son"])
 - If a character's role is unclear, use "minor"
 
+RULES FOR ADDRESS RULES (VIETNAMESE XƯNG HÔ):
+- Extract ONLY stable, explicit direct-address patterns between two named characters
+- Use original names for "speaker" and "listener"; never use translated names as keys
+- "self" is how the speaker refers to themselves in dialogue (e.g. "ta", "tôi", "anh", "em", "thiếp")
+- "other" is how the speaker addresses/refers to the listener (e.g. "ngươi", "nàng", "em", "huynh", "bệ hạ")
+- Include a rule only when the source or translation clearly supports it; if unsure, leave it out
+- Do NOT add generic third-person pronoun examples here
+- Use "since": {{chapter_number}} when the pattern starts or is first confirmed in this chapter
+
 Respond with JSON ONLY (no other text):
 {
     "terms": {
@@ -58,13 +67,23 @@ Respond with JSON ONLY (no other text):
     "characters": {
         "entities": {
             "original name": {
-                "name_vi": "Vietnamese name",
+                "translated_name": "Vietnamese name",
                 "role": "protagonist | antagonist | supporting | minor",
                 "pronoun": "Vietnamese pronoun (e.g. cậu, anh ấy, cô ấy, hắn)"
             }
         },
         "edges": [
             ["from_original_name", "to_original_name", "relationship_type_in_english"]
+        ],
+        "address_rules": [
+            {
+                "speaker": "from_original_name",
+                "listener": "to_original_name",
+                "self": "Vietnamese self-reference",
+                "other": "Vietnamese address/reference for listener",
+                "since": {{chapter_number}},
+                "notes": "optional short reason or context"
+            }
         ]
     }
 }

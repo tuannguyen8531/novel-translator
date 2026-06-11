@@ -14,7 +14,7 @@ class TestInitialState:
         )
 
         required_fields = [
-            "source_text", "source_language", "novel_name", "chapter_number",
+            "source_text", "source_language", "target_language", "novel_name", "chapter_number",
             "translation_rules", "glossary", "previous_summary",
             "chunks", "current_chunk_index", "translated_chunks",
             "current_translation", "review_score", "review_feedback",
@@ -33,6 +33,7 @@ class TestInitialState:
         )
         assert state["source_text"] == "hello world"
         assert state["source_language"] == "korean"
+        assert state["target_language"] == "vi"
         assert state["novel_name"] == "my-novel"
         assert state["chapter_number"] == 5
 
@@ -44,6 +45,7 @@ class TestInitialState:
             chapter_number=1,
         )
         assert state["translation_rules"] == ""
+        assert state["target_language"] == "vi"
         assert state["glossary"] == {}
         assert state["previous_summary"] == ""
         assert state["chunks"] == []
@@ -68,3 +70,13 @@ class TestInitialState:
         )
         assert isinstance(state, dict)
         assert state["source_text"] == "test"
+
+    def test_target_language_set(self):
+        state = initial_state(
+            source_text="test",
+            source_language="chinese",
+            target_language="en",
+            novel_name="test",
+            chapter_number=1,
+        )
+        assert state["target_language"] == "en"

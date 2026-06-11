@@ -14,6 +14,7 @@ class TranslationState(TypedDict):
     # --- Input (set at invocation) ---
     source_text: str                    # Full raw text to translate
     source_language: str                # "chinese" | "korean" | "japanese" | "" (auto-detect)
+    target_language: str                # "vi" | "en"
     novel_name: str                     # For glossary lookup
     chapter_number: int                 # Current chapter number
 
@@ -21,7 +22,7 @@ class TranslationState(TypedDict):
     translation_rules: str              # Rules from rules/{language}.md
     glossary: dict[str, str]            # Term → Translation mapping
     previous_summary: str               # Summary of previous chapter
-    characters: dict                    # {"entities": {orig: {name_vi, role}}, "edges": [[from, to, type, since_ch]]}
+    characters: dict                    # {"entities": {orig: {translated_name, role}}, "edges": [[from, to, type, since_ch]]}
 
     # --- Chunk Processing ---
     chunks: list[str]                   # Text split into translatable chunks
@@ -50,11 +51,13 @@ def initial_state(
     source_language: str,
     novel_name: str,
     chapter_number: int,
+    target_language: str = "vi",
 ) -> TranslationState:
     """Create a properly initialized TranslationState."""
     return TranslationState(
         source_text=source_text,
         source_language=source_language,
+        target_language=target_language,
         novel_name=novel_name,
         chapter_number=chapter_number,
         translation_rules="",

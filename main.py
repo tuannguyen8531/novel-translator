@@ -20,13 +20,18 @@ from src.models.state import initial_state
 from src.services.logger import log_error
 from src.utils.display import print_banner, check_provider, RED, GREEN, YELLOW, DIM, RESET
 from src.utils.text import normalize_paragraph_spacing
+from src.domain.target_language import SUPPORTED_TARGET_LANGUAGES, normalize_target_language, target_language_name
 
 
 
-def _get_output_dir(novel_name: str) -> Path:
+def _get_output_dir(novel_name: str, target_language: str | None = None) -> Path:
+    target = normalize_target_language(target_language or config.target_language)
     if config.novel_share_dir:
-        return Path(config.novel_share_dir) / novel_name / "output"
-    return Path("output") / novel_name
+        base_dir = Path(config.novel_share_dir) / novel_name / "output"
+        return base_dir if target == "vi" else base_dir / target
+    if target == "vi":
+        return Path("output") / novel_name
+    return Path("output") / target / novel_name
 
 
 def parse_input_path(input_path: str) -> tuple[str, str, int]:
@@ -60,7 +65,13 @@ def parse_input_path(input_path: str) -> tuple[str, str, int]:
     return str(path), novel_name, chapter_number
 
 
-def translate_file(input_path: str, novel_name: str, chapter_number: int, language: str = "") -> None:
+def translate_file(
+    input_path: str,
+    novel_name: str,
+    chapter_number: int,
+    language: str = "",
+    target_language: str = "vi",
+) -> None:
     """Run the translation pipeline on a file."""
     input_file = Path(input_path)
     source_text = input_file.read_text(encoding="utf-8")
@@ -74,6 +85,7 @@ def translate_file(input_path: str, novel_name: str, chapter_number: int, langua
         print(f"{DIM}🌐 Language: {language} (specified){RESET}")
     else:
         print(f"{DIM}🌐 Language: auto-detect{RESET}")
+    print(f"{DIM}🎯 Target: {target_language_name(target_language)} ({target_language}){RESET}")
     print()
 
     graph = build_graph()
@@ -83,6 +95,7 @@ def translate_file(input_path: str, novel_name: str, chapter_number: int, langua
         result = graph.invoke(initial_state(
             source_text=source_text,
             source_language=language,
+            target_language=target_language,
             novel_name=novel_name,
             chapter_number=chapter_number,
         ))
@@ -93,7 +106,7 @@ def translate_file(input_path: str, novel_name: str, chapter_number: int, langua
 
     elapsed = time.time() - start_time
 
-    output_dir = _get_output_dir(novel_name)
+    output_dir = _get_output_dir(novel_name, target_language)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"chapter_{chapter_number:03d}.txt"
 
@@ -119,12 +132,13 @@ def translate_file(input_path: str, novel_name: str, chapter_number: int, langua
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="📚 Novel Translator — Trung/Hàn/Nhật → Tiếng Việt",
+        description="📚 Novel Translator — Trung/Hàn/Nhật → target language",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   uv run python main.py -i input/my-novel/chapter_1.txt
   uv run python main.py -i input/my-novel/chapter_1.txt --lang chinese
+  uv run python main.py -i input/my-novel/chapter_1.txt --target en
   uv run python main.py -i input/my-novel/chapter_1.txt --provider gemini
         """,
     )
@@ -138,6 +152,12 @@ Examples:
         choices=["chinese", "korean", "japanese"],
         default="",
         help="Source language (auto-detect if not specified)",
+    )
+    parser.add_argument(
+        "-t", "--target",
+        choices=sorted(SUPPORTED_TARGET_LANGUAGES),
+        default=config.target_language,
+        help="Target language (default: vi)",
     )
     parser.add_argument(
         "-p", "--provider",
@@ -167,6 +187,7 @@ Examples:
 
     if args.provider:
         config.llm_provider = args.provider
+    config.target_language = args.target
 
     if args.review:
         config.enable_review = True
@@ -183,7 +204,7 @@ Examples:
         sys.exit(1)
 
     print()
-    translate_file(input_path, novel_name, chapter_number, args.lang)
+    translate_file(input_path, novel_name, chapter_number, args.lang, args.target)
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 import time
 
 from src.config import config
-from src.services.llm.base import BaseProvider
+from src.services.llm.base import BaseProvider, STRUCTURED_JSON_CALL_TYPES
 
 
 class OllamaProvider(BaseProvider):
@@ -25,6 +25,10 @@ class OllamaProvider(BaseProvider):
                 "num_predict": self.max_tokens,
             },
         }
+        if call_type in STRUCTURED_JSON_CALL_TYPES:
+            payload["format"] = "json"
+            payload["think"] = False
+            payload["options"]["temperature"] = 0.0
 
         start = time.monotonic()
         call_id = self._log_request_sent(

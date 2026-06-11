@@ -1,12 +1,14 @@
 from src.domain.glossary import (
     audit_term_usage,
-    extract_pronoun_examples,
+    format_address_rules,
     format_glossary_for_prompt,
-    format_pronoun_examples,
     format_recent_summaries,
     format_relationships_shorthand,
     merge_character_context,
-    merge_pronoun_examples,
+    normalize_address_rules,
+    normalize_character_edges,
+    normalize_glossary_data,
+    select_active_address_rules,
     select_active_character_context,
     upsert_relationship,
     validate_glossary_data,
@@ -30,29 +32,43 @@ def test_validate_glossary_data_accepts_current_schema():
     data = {
         "terms": {"李明": "Lý Minh"},
         "source_language": "chinese",
-        "entities": {"李明": {"name_vi": "Lý Minh", "role": "protagonist", "pronoun": "cậu"}},
+        "entities": {"李明": {"translated_name": "Lý Minh", "role": "protagonist", "pronoun": "cậu"}},
         "edges": [["李明", "张伟", "friend", 1]],
+        "address_rules": [{"speaker": "李明", "listener": "张伟", "self": "ta", "other": "ngươi", "since": 1}],
         "chapter_summaries": {"1": "Summary"},
     }
 
     issues = validate_glossary_data(data)
 
     assert "edge 0 references unknown character '张伟'" in issues
-    assert len(issues) == 1
+    assert "address rule 0 references unknown listener '张伟'" in issues
+    assert len(issues) == 2
+
+
+def test_validate_glossary_data_accepts_legacy_name_vi():
+    data = {
+        "entities": {"李明": {"name_vi": "Lý Minh", "role": "protagonist", "pronoun": "cậu"}},
+    }
+
+    assert validate_glossary_data(data) == []
 
 
 def test_validate_glossary_data_reports_bad_shapes():
     issues = validate_glossary_data({
         "terms": {"": ""},
-        "entities": {"李明": {"name_vi": 123}},
+        "entities": {"李明": {"translated_name": 123}},
         "edges": [["李明"]],
+        "address_rules": [{"speaker": "李明", "listener": "", "self": 1, "since": "1"}],
         "chapter_summaries": {"one": 1},
     })
 
     assert "terms contains an empty or non-string source term" in issues
     assert "term '' has an empty or non-string translation" in issues
-    assert "entity '李明'.name_vi must be a string" in issues
+    assert "entity '李明'.translated_name must be a string" in issues
     assert "edge 0 must be [from, to, relationship, since_chapter?]" in issues
+    assert "address rule 0 has an invalid listener" in issues
+    assert "address rule 0.self must be a string" in issues
+    assert "address rule 0.since must be an integer" in issues
     assert "chapter summary key 'one' must be a numeric string" in issues
     assert "chapter summary 'one' must be a string" in issues
 
@@ -78,9 +94,9 @@ def test_format_recent_summaries_keeps_recent_order():
 
 def test_select_active_character_context_includes_first_degree_neighbors():
     entities = {
-        "李明": {"name_vi": "Lý Minh", "role": "protagonist"},
-        "张伟": {"name_vi": "Trương Vĩ", "role": "supporting"},
-        "王芳": {"name_vi": "Vương Phương", "role": "minor"},
+        "李明": {"translated_name": "Lý Minh", "role": "protagonist"},
+        "张伟": {"translated_name": "Trương Vĩ", "role": "supporting"},
+        "王芳": {"translated_name": "Vương Phương", "role": "minor"},
     }
     edges = [["李明", "张伟", "friend", 1], ["王芳", "张伟", "sibling", 2]]
 
@@ -92,20 +108,110 @@ def test_select_active_character_context_includes_first_degree_neighbors():
 
 def test_merge_character_context_keeps_first_pronoun_and_dedupes_reverse_edges():
     data = {
-        "entities": {"李明": {"name_vi": "Lý Minh", "role": "minor", "pronoun": "cậu"}},
+        "entities": {
+            "李明": {"translated_name": "Lý Minh", "role": "minor", "pronoun": "cậu"},
+            "张伟": {"translated_name": "Trương Vĩ", "role": "supporting", "pronoun": ""},
+        },
         "edges": [["李明", "张伟", "friend", 1]],
     }
 
     result = merge_character_context(
         data,
-        {"李明": {"name_vi": "Lý Minh", "role": "protagonist", "pronoun": "anh ấy"}},
+        {"李明": {"translated_name": "Lý Minh", "role": "protagonist", "pronoun": "anh ấy"}},
         [["张伟", "李明", "rival"]],
         chapter=3,
     )
 
     assert result["entities"]["李明"]["role"] == "protagonist"
+    assert result["entities"]["李明"]["translated_name"] == "Lý Minh"
+    assert "name_vi" not in result["entities"]["李明"]
     assert result["entities"]["李明"]["pronoun"] == "cậu"
     assert result["edges"] == [["李明", "张伟", "friend", 1]]
+
+
+def test_merge_character_context_migrates_legacy_name_vi():
+    data = {
+        "entities": {"李明": {"name_vi": "Lý Minh", "role": "minor", "pronoun": "cậu"}},
+    }
+
+    result = merge_character_context(data, {}, [], chapter=1)
+
+    assert result["entities"]["李明"] == {
+        "translated_name": "Lý Minh",
+        "role": "minor",
+        "pronoun": "cậu",
+    }
+
+
+def test_normalize_character_edges_resolves_translated_names_and_dedupes():
+    entities = {
+        "카일 윈프레드": {"translated_name": "Kyle Winfred"},
+        "이사벨 유스티아": {"translated_name": "Isabelle Justia"},
+    }
+    edges = [
+        ["카일 윈프레드", "이사벨 유스티아", "romantic interest", 1],
+        ["Kyle Winfred", "Isabelle Justia", "ex", 13],
+        ["Unknown", "Kyle Winfred", "friend", 13],
+    ]
+
+    assert normalize_character_edges(edges, entities) == [
+        ["카일 윈프레드", "이사벨 유스티아", "romantic interest", 1],
+    ]
+
+
+def test_normalize_glossary_data_drops_pronoun_examples():
+    data = {
+        "entities": {"李明": {"name_vi": "Lý Minh", "role": "minor", "pronoun": "cậu"}},
+        "edges": [["Lý Minh", "missing", "friend", 1]],
+        "pronoun_examples": {"李明": ["Cậu bước vào phòng."]},
+    }
+
+    result = normalize_glossary_data(data)
+
+    assert result["entities"]["李明"]["translated_name"] == "Lý Minh"
+    assert result["edges"] == []
+    assert result["address_rules"] == []
+    assert "pronoun_examples" not in result
+
+
+def test_normalize_address_rules_resolves_names_and_dedupes():
+    entities = {
+        "카일": {"translated_name": "Kyle"},
+        "이사벨": {"translated_name": "Isabelle"},
+    }
+    rules = [
+        {"speaker": "Kyle", "listener": "Isabelle", "self": "ta", "other": "nàng", "since": "3"},
+        {"speaker": "카일", "listener": "이사벨", "self": "", "other": "em", "since": 3, "notes": "warmer later"},
+        {"speaker": "Unknown", "listener": "Kyle", "self": "ta", "other": "ngươi", "since": 3},
+    ]
+
+    result = normalize_address_rules(rules, entities, chapter=2)
+
+    assert result == [
+        {
+            "speaker": "카일",
+            "listener": "이사벨",
+            "self": "ta",
+            "other": "em",
+            "since": 3,
+            "notes": "warmer later",
+        }
+    ]
+
+
+def test_select_active_address_rules_filters_by_pair_and_chapter():
+    active_entities = {
+        "李明": {"translated_name": "Lý Minh"},
+        "张伟": {"translated_name": "Trương Vĩ"},
+    }
+    rules = [
+        {"speaker": "李明", "listener": "张伟", "self": "tôi", "other": "cậu", "since": 1, "until": 3},
+        {"speaker": "张伟", "listener": "李明", "self": "tao", "other": "mày", "since": 5},
+        {"speaker": "李明", "listener": "王芳", "self": "tôi", "other": "cô", "since": 1},
+    ]
+
+    assert select_active_address_rules(rules, active_entities, current_chapter=2) == [rules[0]]
+    assert select_active_address_rules(rules, active_entities, current_chapter=5) == [rules[1]]
 
 
 def test_upsert_relationship_updates_reverse_pair():
@@ -117,7 +223,13 @@ def test_upsert_relationship_updates_reverse_pair():
 
 
 def test_upsert_relationship_preserves_since_when_not_supplied():
-    data = {"edges": [["李明", "张伟", "friend", 1]]}
+    data = {
+        "entities": {
+            "李明": {"translated_name": "Lý Minh"},
+            "张伟": {"translated_name": "Trương Vĩ"},
+        },
+        "edges": [["李明", "张伟", "friend", 1]],
+    }
 
     result = upsert_relationship(data, "李明", "张伟", "rival")
 
@@ -126,8 +238,8 @@ def test_upsert_relationship_preserves_since_when_not_supplied():
 
 def test_format_relationships_shorthand():
     entities = {
-        "李明": {"name_vi": "Lý Minh", "role": "protagonist", "pronoun": "cậu"},
-        "张伟": {"name_vi": "Trương Vĩ", "role": "supporting"},
+        "李明": {"translated_name": "Lý Minh", "role": "protagonist", "pronoun": "cậu"},
+        "张伟": {"translated_name": "Trương Vĩ", "role": "supporting"},
     }
     edges = [["李明", "张伟", "friend", 1]]
 
@@ -138,68 +250,17 @@ def test_format_relationships_shorthand():
     assert "Lý Minh(friend)->Trương Vĩ" in result
 
 
-def test_extract_pronoun_examples():
-    translation = "Lý Minh bước vào phòng. Cậu nhìn xung quanh. Cậu thấy Trương Vĩ đang ngồi đó. Trương Vĩ mỉm cười với cậu."
+def test_format_address_rules():
     entities = {
-        "李明": {"name_vi": "Lý Minh", "pronoun": "cậu"},
-        "张伟": {"name_vi": "Trương Vĩ", "pronoun": "anh ấy"},
+        "李明": {"translated_name": "Lý Minh"},
+        "张伟": {"translated_name": "Trương Vĩ"},
     }
+    rules = [{"speaker": "李明", "listener": "张伟", "self": "tôi", "other": "cậu", "since": 2}]
 
-    result = extract_pronoun_examples(translation, entities)
+    result = format_address_rules(entities, rules, target_language="vi")
 
-    assert "李明" in result
-    assert any("cậu" in ex for ex in result["李明"])
-
-
-def test_extract_pronoun_examples_no_pronoun():
-    translation = "Lý Minh bước vào phòng."
-    entities = {
-        "李明": {"name_vi": "Lý Minh", "pronoun": ""},
-    }
-
-    result = extract_pronoun_examples(translation, entities)
-    assert result == {}
-
-
-def test_merge_pronoun_examples_deduplicates():
-    existing = {"李明": ["Cậu bước vào phòng.", "Cậu nhìn xung quanh."]}
-    new = {"李明": ["Cậu nhìn xung quanh.", "Cậu thấy vui."]}
-
-    result = merge_pronoun_examples(existing, new)
-
-    assert result["李明"] == ["Cậu bước vào phòng.", "Cậu nhìn xung quanh.", "Cậu thấy vui."]
-
-
-def test_merge_pronoun_examples_keeps_recent():
-    existing = {"李明": ["Ex1", "Ex2", "Ex3"]}
-    new = {"李明": ["Ex4"]}
-
-    result = merge_pronoun_examples(existing, new)
-
-    assert len(result["李明"]) == 3
-    assert result["李明"] == ["Ex2", "Ex3", "Ex4"]
-
-
-def test_format_pronoun_examples():
-    entities = {
-        "李明": {"name_vi": "Lý Minh", "pronoun": "cậu"},
-        "张伟": {"name_vi": "Trương Vĩ", "pronoun": "anh ấy"},
-    }
-    examples = {
-        "李明": ["Cậu bước vào phòng.", "Cậu mỉm cười."],
-    }
-
-    result = format_pronoun_examples(entities, examples)
-
-    assert "=== PRONOUN USAGE" in result
-    assert 'Lý Minh → use "cậu"' in result
-    assert "Cậu bước vào phòng." in result
-    assert "Trương Vĩ" not in result  # No examples for this character
-
-
-def test_format_pronoun_examples_empty():
-    result = format_pronoun_examples({}, {})
-    assert result == ""
+    assert "=== ADDRESS RULES ===" in result
+    assert 'Lý Minh -> Trương Vĩ: xưng hô; self="tôi", other="cậu", since chapter 2' in result
 
 
 def test_validate_glossary_data_pronoun_examples():

@@ -9,13 +9,14 @@ Runs after all chunks are translated. Responsible for:
 
 from src.models.state import TranslationState
 from src.services.llm import get_llm
-from src.services.glossary import save_glossary, save_chapter_summary, save_source_language, save_characters_batch, save_pronoun_examples
+from src.services.glossary import save_glossary, save_chapter_summary, save_source_language, save_characters_batch
 from src.services.logger import log_ai_call, log_error
 from src.config import config
 from src.domain.terms import MIN_TERM_FREQUENCY, filter_terms_by_frequency
-from src.domain.glossary import extract_pronoun_examples
+from src.domain.glossary import get_character_translated_name, normalize_address_rules, normalize_character_edges
 from src.utils.json import parse_json_object
 from src.prompts import render_prompt
+from src.domain.target_language import target_language_name
 
 KINSHIP_TERMS = {
     # English
@@ -134,29 +135,45 @@ def _normalize_relationship(rel_type: str) -> str:
     return rel_type
 
 
-def _build_existing_chars_str(entities: dict, edges: list) -> str:
+def _build_existing_chars_str(entities: dict, edges: list, address_rules: list | None = None) -> str:
     """Build existing characters context string for the learner prompt."""
     if not entities:
         return "(none)"
 
     entity_parts = []
     for name_orig, info in entities.items():
-        name_vi = info.get("name_vi", "")
+        translated_name = get_character_translated_name(info)
         role = info.get("role", "")
         pronoun = info.get("pronoun", "")
         pronoun_str = f' pronoun="{pronoun}"' if pronoun else ""
-        entity_parts.append(f"  {name_orig}" + (f" ({name_vi})" if name_vi else "") + (f" [{role}{pronoun_str}]" if role or pronoun else ""))
+        entity_parts.append(f"  {name_orig}" + (f" ({translated_name})" if translated_name else "") + (f" [{role}{pronoun_str}]" if role or pronoun else ""))
 
+    parts = ["Entities:", *entity_parts]
     if edges:
         edge_parts = []
         for edge in edges:
             if len(edge) >= 3:
-                from_vi = entities.get(edge[0], {}).get("name_vi", edge[0])
-                to_vi = entities.get(edge[1], {}).get("name_vi", edge[1])
-                edge_parts.append(f"  {from_vi}({edge[2]})->{to_vi}")
-        return "Entities:\n" + "\n".join(entity_parts) + "\nRelations:\n" + "\n".join(edge_parts)
+                from_name = get_character_translated_name(entities.get(edge[0], {})) or edge[0]
+                to_name = get_character_translated_name(entities.get(edge[1], {})) or edge[1]
+                edge_parts.append(f"  {from_name}({edge[2]})->{to_name}")
+        parts.extend(["Relations:", *edge_parts])
 
-    return "Entities:\n" + "\n".join(entity_parts)
+    if address_rules:
+        rule_parts = []
+        for rule in address_rules:
+            speaker = get_character_translated_name(entities.get(rule.get("speaker", ""), {})) or rule.get("speaker", "")
+            listener = get_character_translated_name(entities.get(rule.get("listener", ""), {})) or rule.get("listener", "")
+            refs = []
+            if rule.get("self"):
+                refs.append(f'self="{rule["self"]}"')
+            if rule.get("other"):
+                refs.append(f'other="{rule["other"]}"')
+            if rule.get("notes"):
+                refs.append(f'notes="{rule["notes"]}"')
+            rule_parts.append(f"  {speaker}->{listener}: " + ", ".join(refs))
+        parts.extend(["Address rules:", *rule_parts])
+
+    return "\n".join(parts)
 
 
 def learner_node(state: TranslationState) -> dict:
@@ -164,6 +181,8 @@ def learner_node(state: TranslationState) -> dict:
     novel_name = state["novel_name"]
     chapter_number = state["chapter_number"]
     language = state["source_language"]
+    target_language = state.get("target_language", "vi")
+    target_name = target_language_name(target_language)
 
     full_translation = "\n\n".join(state["translated_chunks"])
     source_text = state["source_text"]
@@ -175,18 +194,22 @@ def learner_node(state: TranslationState) -> dict:
     existing_characters = state.get("characters", {})
     existing_entities = existing_characters.get("entities", {})
     existing_edges = existing_characters.get("edges", [])
-    existing_chars_str = _build_existing_chars_str(existing_entities, existing_edges)
+    existing_address_rules = existing_characters.get("address_rules", [])
+    existing_chars_str = _build_existing_chars_str(existing_entities, existing_edges, existing_address_rules)
 
     learn_system_prompt = render_prompt(
         "learner_extract",
+        target_language=target_language,
+        target_name=target_name,
         existing_terms_str=existing_terms_str,
         existing_chars_str=existing_chars_str,
+        chapter_number=str(chapter_number),
     )
 
     learn_user_prompt = f"""=== SOURCE TEXT ({language}) ===
 {source_text[:4000]}
 
-=== VIETNAMESE TRANSLATION ===
+=== {target_name.upper()} TRANSLATION ===
 {full_translation[:4000]}"""
 
     new_terms = {}
@@ -215,6 +238,7 @@ def learner_node(state: TranslationState) -> dict:
     # Normalize and validate edge relationship types
     new_edges = new_characters.get("edges", [])
     cleaned_edges = []
+    edge_entities = {**existing_entities, **filtered_entities}
     for edge in new_edges:
         if len(edge) < 3:
             continue
@@ -224,7 +248,7 @@ def learner_node(state: TranslationState) -> dict:
             continue
         normalized_rel = _normalize_relationship(rel_type)
         cleaned_edges.append([from_char, to_char, normalized_rel] + edge[3:])
-    new_characters["edges"] = cleaned_edges
+    new_characters["edges"] = normalize_character_edges(cleaned_edges, edge_entities)
 
     # Filter: only keep terms that appear at least MIN_TERM_FREQUENCY times
     if new_terms:
@@ -234,19 +258,19 @@ def learner_node(state: TranslationState) -> dict:
         save_glossary(novel_name, new_terms)
 
     new_entities = new_characters.get("entities", {})
+    new_address_rules = new_characters.get("address_rules", [])
     new_edges = new_characters.get("edges", [])
 
-    if new_entities or new_edges:
-        save_characters_batch(novel_name, new_entities, new_edges, chapter=chapter_number)
-        print(f"  📝 Updated {len(new_entities)} character(s), {len(new_edges)} relationship(s)")
+    edge_entities = {**existing_entities, **new_entities}
+    new_address_rules = normalize_address_rules(new_address_rules, edge_entities, chapter=chapter_number)
+    new_characters["address_rules"] = new_address_rules
 
-    # Extract and save pronoun usage examples from this chapter's translation
-    all_entities = new_characters.get("entities", {})
-    pronoun_examples = extract_pronoun_examples(full_translation, all_entities)
-    if pronoun_examples:
-        save_pronoun_examples(novel_name, pronoun_examples)
-        total_examples = sum(len(exs) for exs in pronoun_examples.values())
-        print(f"  💬 Saved {total_examples} pronoun example(s) for {len(pronoun_examples)} character(s)")
+    if new_entities or new_edges or new_address_rules:
+        save_characters_batch(novel_name, new_entities, new_edges, address_rules=new_address_rules, chapter=chapter_number)
+        print(
+            f"  📝 Updated {len(new_entities)} character(s), {len(new_edges)} relationship(s), "
+            f"{len(new_address_rules)} address rule(s)"
+        )
 
     save_source_language(novel_name, state["source_language"])
 
@@ -265,7 +289,7 @@ def learner_node(state: TranslationState) -> dict:
     if not config.enable_summary:
         summary_response = ""
     else:
-        summary_system_prompt = render_prompt("learner_summary")
+        summary_system_prompt = render_prompt("learner_summary", target_language=target_language, target_name=target_name)
         summary_user_prompt = f"Summarize chapter {chapter_number}:\n\n{full_translation[:4000]}"
 
         try:
