@@ -108,7 +108,7 @@ def normalize_character_edges(edges: list, entities: dict) -> list[list]:
 
         since = edge[3] if len(edge) > 3 and isinstance(edge[3], int) else None
         pair = frozenset((from_char, to_char))
-        new_edge = [from_char, to_char, rel_type]
+        new_edge: list[str | int] = [from_char, to_char, rel_type]
         if since is not None:
             new_edge.append(since)
 
@@ -530,7 +530,7 @@ def upsert_relationship(
                 edge.append(since_chapter)
             return {**data, "edges": edges}
 
-    edge = [from_char, to_char, relationship]
+    edge: list[str | int] = [from_char, to_char, relationship]
     if since_chapter is not None:
         edge.append(since_chapter)
     edges.append(edge)

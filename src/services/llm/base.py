@@ -98,6 +98,10 @@ class BaseProvider(ABC):
                     continue
                 raise
 
+        raise RuntimeError(
+            f"{self.provider_name} API error: exhausted retries without a response"
+        )
+
     @abstractmethod
     def _do_generate(self, system_prompt: str, user_prompt: str, call_type: str) -> str:
         """Make the actual API call. Must be implemented by subclasses."""

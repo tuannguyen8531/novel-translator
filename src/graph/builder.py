@@ -15,6 +15,7 @@ Flow (skip review):
 """
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
 from src.models.state import TranslationState
 from src.graph.nodes.detector import detector_node
@@ -83,7 +84,12 @@ def _has_more_chunks(state: TranslationState) -> str:
     return "learn"
 
 
-def build_graph() -> StateGraph:
+def build_graph() -> CompiledStateGraph[
+    TranslationState,
+    None,
+    TranslationState,
+    TranslationState,
+]:
     """
     Build and compile the translation pipeline graph.
 

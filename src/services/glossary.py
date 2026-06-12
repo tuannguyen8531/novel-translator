@@ -40,6 +40,7 @@ Character schema:
 import fcntl
 import shutil
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 from src.config import config
@@ -140,7 +141,7 @@ def load_glossary_data(novel_name: str) -> dict:
     return _read_json_locked(_resolve_glossary(novel_name))
 
 
-def _merge_json_locked(path: Path, updater: callable) -> dict:
+def _merge_json_locked(path: Path, updater: Callable[[dict], dict]) -> dict:
     """Atomically read-modify-write JSON with exclusive lock.
 
     After writing to the project path, copies to share dir if configured.
