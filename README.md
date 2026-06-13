@@ -11,6 +11,7 @@ CLI tool for translating web novel chapters from Chinese/Korean/Japanese to Viet
 - **Quality review loop**: LLM scores translations, deterministic checks catch mechanical issues, retries below threshold
 - **Language-specific rules**: Honorifics, genre terms (xianxia, murim, isekai, regression)
 - **Chunked processing**: Paragraph-aware splitting with overlap for context continuity
+- **Illustration restoration**: Preserves `[[ILLUSTRATION:...]]` markers and restores imported EPUB images during packaging
 
 ## Requirements
 
@@ -226,6 +227,10 @@ For local output, they are written outside the chapter folder under `output/`,
 for example `output/my-novel.en.epub`.
 
 *Note for PDF format:* The packager automatically scans the system for TrueType serif fonts supporting Vietnamese diacritics (like DejaVuSerif) to ensure correct unicode rendering. It also cleans up any residual Chinese punctuation marks (`『`, `』`, etc.) or untranslated characters.
+
+When crawler-imported chapters contain markers such as `[[ILLUSTRATION:003-001.jpg]]`,
+`pack` loads the matching file from `{novel}/illustrations/` and inserts it at that position
+in the generated EPUB or PDF.
 
 ### How it works
 

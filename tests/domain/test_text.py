@@ -77,6 +77,13 @@ class TestSplitIntoChunks:
         result = split_into_chunks(text, chunk_size=30, overlap=0)
         assert len(result) > 1
 
+    def test_illustration_marker_is_not_repeated_as_overlap(self):
+        text = "Before image.\n\n[[ILLUSTRATION:001-001.jpg]]\n\nAfter image."
+
+        result = split_into_chunks(text, chunk_size=20, overlap=100)
+
+        assert sum(chunk.count("[[ILLUSTRATION:001-001.jpg]]") for chunk in result) == 1
+
 
 class TestSplitSentences:
     def test_cjk_endings(self):

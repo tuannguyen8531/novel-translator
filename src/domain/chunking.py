@@ -2,6 +2,8 @@
 
 import re
 
+from src.domain.illustrations import parse_illustration_marker
+
 
 def split_into_chunks(text: str, chunk_size: int = 1500, overlap: int = 100) -> list[str]:
     """
@@ -28,7 +30,7 @@ def split_into_chunks(text: str, chunk_size: int = 1500, overlap: int = 100) -> 
     for para in paragraphs:
         para_size = len(para)
 
-        if para_size > chunk_size:
+        if para_size > chunk_size and not parse_illustration_marker(para):
             if current_chunk_parts:
                 chunks.append("\n\n".join(current_chunk_parts))
                 current_chunk_parts = []
@@ -53,9 +55,13 @@ def split_into_chunks(text: str, chunk_size: int = 1500, overlap: int = 100) -> 
             chunks.append("\n\n".join(current_chunk_parts))
             if overlap > 0 and current_chunk_parts:
                 last_part = current_chunk_parts[-1]
-                overlap_text = last_part[-overlap:] if len(last_part) > overlap else last_part
-                current_chunk_parts = [overlap_text]
-                current_size = len(overlap_text)
+                if parse_illustration_marker(last_part):
+                    current_chunk_parts = []
+                    current_size = 0
+                else:
+                    overlap_text = last_part[-overlap:] if len(last_part) > overlap else last_part
+                    current_chunk_parts = [overlap_text]
+                    current_size = len(overlap_text)
             else:
                 current_chunk_parts = []
                 current_size = 0

@@ -18,6 +18,7 @@ from urllib.request import urlopen, Request
 from urllib.error import URLError
 from fpdf import FPDF
 from src.config import config
+from src.domain.illustrations import parse_illustration_marker
 from src.domain.target_language import SUPPORTED_TARGET_LANGUAGES, normalize_target_language
 from src.utils.display import RED, GREEN, YELLOW, DIM, RESET
 
@@ -113,6 +114,26 @@ def resolve_cover_image(metadata: dict) -> Path | None:
             return Path(tmp.name)
     except (URLError, OSError):
         return None
+
+
+def resolve_illustration(illustrations_dir: Path | None, filename: str) -> Path | None:
+    """Resolve a marker filename inside the novel's illustrations directory."""
+    if illustrations_dir is None or Path(filename).name != filename:
+        return None
+    path = illustrations_dir / filename
+    return path if path.is_file() else None
+
+
+def image_media_type(path: Path) -> str:
+    """Return the EPUB media type for an illustration file."""
+    return {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+    }.get(path.suffix.lower(), "application/octet-stream")
 
 
 def find_serif_fonts() -> tuple[str, str]:
@@ -224,18 +245,38 @@ def parse_chapter_file(file_path: Path) -> tuple[str, list[str]]:
 class EPUBBuilder:
     """Pure Python EPUB generator with zero dependencies."""
 
-    def __init__(self, title: str, author: str = "AI Translator", language: str = "vi", cover_image: Path | None = None):
+    def __init__(
+        self,
+        title: str,
+        author: str = "AI Translator",
+        language: str = "vi",
+        cover_image: Path | None = None,
+        illustrations_dir: Path | None = None,
+    ):
         self.title = title
         self.author = author
         self.language = language
         self.chapters = []
         self.book_id = f"urn:uuid:{uuid.uuid4()}"
         self.cover_image = cover_image  # Path to cover image (png/jpg)
+        self.illustrations_dir = illustrations_dir
+        self.illustrations: dict[str, Path] = {}
 
     def add_chapter(self, title: str, paragraphs: list[str]):
         chapter_id = f"chapter_{len(self.chapters) + 1}"
         content_html = f"<h1>{html.escape(title)}</h1>\n"
         for p in paragraphs:
+            illustration_name = parse_illustration_marker(p)
+            if illustration_name:
+                illustration_path = resolve_illustration(self.illustrations_dir, illustration_name)
+                if illustration_path:
+                    self.illustrations[illustration_name] = illustration_path
+                    content_html += (
+                        '<div class="illustration">'
+                        f'<img src="images/{html.escape(illustration_name)}" alt="Illustration"/>'
+                        "</div>\n"
+                    )
+                    continue
             content_html += f"<p>{html.escape(p)}</p>\n"
         self.chapters.append({
             "id": chapter_id,
@@ -271,6 +312,14 @@ h1 {
 p {
   margin-bottom: 0.8em;
   text-align: justify;
+}
+.illustration {
+  margin: 1.2em 0;
+  text-align: center;
+}
+.illustration img {
+  max-width: 100%;
+  height: auto;
 }"""
             zf.writestr("OEBPS/style.css", style_css)
 
@@ -299,6 +348,9 @@ p {
 </body>
 </html>"""
                 zf.writestr("OEBPS/cover.xhtml", cover_xhtml)
+
+            for filename, illustration_path in self.illustrations.items():
+                zf.write(str(illustration_path), f"OEBPS/images/{filename}")
 
             # 5. OEBPS/chapter_*.xhtml
             for ch in self.chapters:
@@ -373,6 +425,12 @@ p {
             manifest_items.append(f'    <item id="{ch["id"]}" href="{ch["id"]}.xhtml" media-type="application/xhtml+xml"/>')
             spine_items.append(f'    <itemref idref="{ch["id"]}"/>')
 
+        for index, (filename, illustration_path) in enumerate(self.illustrations.items(), start=1):
+            manifest_items.append(
+                f'    <item id="illustration-{index}" href="images/{html.escape(filename)}" '
+                f'media-type="{image_media_type(illustration_path)}"/>'
+            )
+
         return f"""<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="2.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
@@ -393,13 +451,22 @@ p {
 class NovelPDF(FPDF):
     """FPDF subclass for formatting novels with customized footers and headers."""
 
-    def __init__(self, title: str, author: str, font_reg: str, font_bold: str, dark_mode: bool = False):
+    def __init__(
+        self,
+        title: str,
+        author: str,
+        font_reg: str,
+        font_bold: str,
+        dark_mode: bool = False,
+        illustrations_dir: Path | None = None,
+    ):
         super().__init__()
         self.book_title = title
         self.book_author = author
         self.font_reg_path = font_reg
         self.font_bold_path = font_bold
         self.dark_mode = dark_mode
+        self.illustrations_dir = illustrations_dir
 
         self.set_margins(20, 20, 20)
         self.set_auto_page_break(auto=True, margin=20)
@@ -478,6 +545,14 @@ class NovelPDF(FPDF):
             text = p.strip()
             if not text:
                 continue
+            illustration_name = parse_illustration_marker(text)
+            if illustration_name:
+                illustration_path = resolve_illustration(self.illustrations_dir, illustration_name)
+                if illustration_path:
+                    available_width = self.w - self.l_margin - self.r_margin
+                    self.image(str(illustration_path), w=available_width)
+                    self.ln(3.5)
+                    continue
             self.multi_cell(w=0, h=6.5, text=text, align="J", new_x="LMARGIN", new_y="NEXT")
             self.ln(3.5)
 
@@ -557,6 +632,7 @@ def main() -> None:
 
     # Resolve cover image from metadata
     cover_image = resolve_cover_image(metadata)
+    illustrations_dir = _get_novel_root_dir(novel_name) / "illustrations"
     downloaded_cover = cover_image and str(cover_image).startswith(tempfile.gettempdir())
 
     if cover_image:
@@ -587,7 +663,13 @@ def main() -> None:
             epub_file = output_dir / f"{package_stem}.epub"
             print(f"\n📦 {YELLOW}Packaging EPUB...{RESET}")
 
-            builder = EPUBBuilder(title=book_title, author=book_author, language=args.target, cover_image=cover_image)
+            builder = EPUBBuilder(
+                title=book_title,
+                author=book_author,
+                language=args.target,
+                cover_image=cover_image,
+                illustrations_dir=illustrations_dir,
+            )
             for title, paras in loaded_chapters:
                 builder.add_chapter(title, paras)
             builder.write(epub_file)
@@ -602,7 +684,14 @@ def main() -> None:
                 print(f"  {RED}⚠ Warning: System DejaVuSerif fonts not found. Standard PDF fallback may crash on Vietnamese accents.{RESET}")
 
             try:
-                pdf = NovelPDF(title=book_title, author=book_author, font_reg=font_reg, font_bold=font_bold, dark_mode=args.dark)
+                pdf = NovelPDF(
+                    title=book_title,
+                    author=book_author,
+                    font_reg=font_reg,
+                    font_bold=font_bold,
+                    dark_mode=args.dark,
+                    illustrations_dir=illustrations_dir,
+                )
                 pdf.create_cover()
                 for title, paras in loaded_chapters:
                     pdf.add_chapter(title, paras)

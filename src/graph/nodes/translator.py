@@ -12,6 +12,7 @@ Builds a system prompt from template with:
 from src.models.state import TranslationState
 from src.services.llm import get_llm
 from src.domain.glossary import format_address_rules, format_glossary_for_prompt, format_relationships_shorthand
+from src.domain.illustrations import detach_illustration_markers, restore_illustration_markers
 from src.services.logger import log_ai_call
 from src.prompts import render_prompt
 from src.domain.target_language import target_language_name
@@ -26,6 +27,7 @@ def translator_node(state: TranslationState) -> dict:
     target_name = target_language_name(target_language)
     retry_count = state.get("retry_count", 0)
     total_chunks = len(state["chunks"])
+    translatable_chunk, illustration_placements = detach_illustration_markers(chunk)
 
     lang_names = {
         "chinese": "Chinese",
@@ -72,10 +74,14 @@ def translator_node(state: TranslationState) -> dict:
     )
 
     user_prompt = (
-        f"Translate the following {lang_name} text to {target_name} (chunk {chunk_index + 1}/{total_chunks}):\n\n{chunk}"
+        f"Translate the following {lang_name} text to {target_name} (chunk {chunk_index + 1}/{total_chunks}):\n\n{translatable_chunk}"
     )
 
-    translation = get_llm().generate(system_prompt, user_prompt, "translate")
+    if translatable_chunk:
+        translation = get_llm().generate(system_prompt, user_prompt, "translate")
+    else:
+        translation = ""
+    translation = restore_illustration_markers(translation, illustration_placements)
 
     log_ai_call(
         "translate",

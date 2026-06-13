@@ -3,6 +3,8 @@
 import re
 from dataclasses import dataclass
 
+from src.domain.illustrations import illustration_marker_counts
+
 
 SOURCE_CHAR_RE = re.compile(
     r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]"
@@ -47,6 +49,15 @@ def post_check_translation(
     if CODE_FENCE_RE.search(translation):
         issues.append(
             TranslationIssue("contains_code_fence", "error", "Translation contains markdown code fences.")
+        )
+
+    if illustration_marker_counts(source) != illustration_marker_counts(translation):
+        issues.append(
+            TranslationIssue(
+                "illustration_marker_mismatch",
+                "error",
+                "Translation must preserve every [[ILLUSTRATION:...]] marker exactly.",
+            )
         )
 
     source_chars = _source_chars(translation)

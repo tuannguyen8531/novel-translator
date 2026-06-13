@@ -1,8 +1,10 @@
 import json
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
 from pack import (
+    EPUBBuilder,
     _get_default_package_dir,
     _get_novel_root_dir,
     _get_output_dir,
@@ -153,3 +155,27 @@ def test_resolve_cover_local_path_missing():
 def test_resolve_cover_no_url():
     assert resolve_cover_image({}) is None
     assert resolve_cover_image({"illustration_url": ""}) is None
+
+
+def test_epub_builder_embeds_illustration_at_marker_position(tmp_path):
+    illustrations_dir = tmp_path / "illustrations"
+    illustrations_dir.mkdir()
+    illustration = illustrations_dir / "001-001.jpg"
+    illustration.write_bytes(b"image-data")
+    output = tmp_path / "book.epub"
+
+    builder = EPUBBuilder("Book", illustrations_dir=illustrations_dir)
+    builder.add_chapter(
+        "Chapter 1",
+        ["Before.", "[[ILLUSTRATION:001-001.jpg]]", "After."],
+    )
+    builder.write(output)
+
+    with zipfile.ZipFile(output) as epub:
+        chapter = epub.read("OEBPS/chapter_1.xhtml").decode("utf-8")
+        manifest = epub.read("OEBPS/content.opf").decode("utf-8")
+        embedded = epub.read("OEBPS/images/001-001.jpg")
+
+    assert chapter.index("Before.") < chapter.index("images/001-001.jpg") < chapter.index("After.")
+    assert 'href="images/001-001.jpg" media-type="image/jpeg"' in manifest
+    assert embedded == b"image-data"

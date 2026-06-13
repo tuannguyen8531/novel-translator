@@ -28,3 +28,11 @@ def test_post_check_warns_for_missing_glossary_term():
     issues = post_check_translation("李明走了", "Anh ấy rời đi.", {"李明": "Lý Minh"})
     assert [issue.code for issue in issues] == ["missing_glossary_term"]
     assert not has_blocking_issues(issues)
+
+
+def test_post_check_requires_illustration_markers_to_be_preserved():
+    source = "Before.\n\n[[ILLUSTRATION:001-001.jpg]]\n\nAfter."
+    issues = post_check_translation(source, "Trước.\n\nSau.", {})
+
+    assert "illustration_marker_mismatch" in [issue.code for issue in issues]
+    assert has_blocking_issues(issues)
