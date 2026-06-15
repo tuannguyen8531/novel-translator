@@ -9,9 +9,15 @@ from src.utils.progress import ProgressTracker
 
 class TestProgressTracker:
     def test_start_chapter_updates_state(self):
-        tracker = ProgressTracker(10, "test-novel")
-        tracker.start_chapter(5, 3)
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            tracker = ProgressTracker(10, "test-novel")
+            tracker.start_chapter(5, 3)
+
         assert tracker.current_chapter == 3
+        output = captured.getvalue()
+        assert "s total" in output
+        assert "s ch" not in output
 
     def test_chapter_done_increments_success(self):
         tracker = ProgressTracker(10, "test-novel")

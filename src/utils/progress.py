@@ -25,7 +25,6 @@ class ProgressTracker:
         self.current_index = 0
         self.current_chapter = 0
         self.file_size = 0
-        self.chapter_start = 0.0
         self.overall_start = time.time()
         self.success = 0
         self.failed = 0
@@ -36,7 +35,6 @@ class ProgressTracker:
         self.current_index = index
         self.current_chapter = chapter_num
         self.file_size = file_size
-        self.chapter_start = time.time()
         self._render()
 
     def chapter_done(self, success: bool):
@@ -49,7 +47,6 @@ class ProgressTracker:
 
     def _render(self):
         """Render progress line."""
-        elapsed = time.time() - self.chapter_start
         overall = time.time() - self.overall_start
         pct = self.current_index / self.total_chapters * 100 if self.total_chapters else 0
 
@@ -59,7 +56,6 @@ class ProgressTracker:
             f" {pct:.0f}%"
             f" {DIM}· Ch.{self.current_chapter}{RESET}"
             f" {DIM}· {size_str}{RESET}"
-            f" {DIM}· {elapsed:.0f}s ch{RESET}"
             f" {DIM}· {overall:.0f}s total{RESET}"
         )
 
