@@ -57,6 +57,9 @@ RULES FOR ADDRESS RULES (ENGLISH DIRECT ADDRESS / REFERENCE STYLE):
 - "self" is how the speaker refers to themselves in dialogue, when relevant (e.g. "I", "this servant")
 - "other" is how the speaker addresses/refers to the listener (e.g. "Your Highness", "Master", "my lady", first name)
 - Include a rule only when the source or translation clearly supports it; if unsure, leave it out
+- Record only the stable default pair used across scenes; do not repeat an unchanged existing rule
+- Do NOT store proper names, temporary nicknames, insults, jokes, or emotional outbursts as address rules
+- If a stable relationship change creates a new default pair, emit the new rule from this chapter
 - Do NOT add generic he/she/they examples here
 - Use "since": {{chapter_number}} when the pattern starts or is first confirmed in this chapter
 

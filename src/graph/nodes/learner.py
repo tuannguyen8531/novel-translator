@@ -60,6 +60,25 @@ ALLOWED_RELATIONSHIP_TYPES = {
     "mentor", "protector", "guardian", "ward",
 }
 
+LEARNER_SAMPLE_CHARS = 4000
+
+
+def _sample_across_text(text: str, max_chars: int = LEARNER_SAMPLE_CHARS) -> str:
+    """Sample the beginning, middle, and end without increasing prompt size."""
+    if len(text) <= max_chars:
+        return text
+
+    separator = "\n\n[... omitted ...]\n\n"
+    available = max_chars - len(separator) * 2
+    section_size = available // 3
+    middle_start = max(0, (len(text) - section_size) // 2)
+    sections = [
+        text[:section_size],
+        text[middle_start:middle_start + section_size],
+        text[-section_size:],
+    ]
+    return separator.join(section.strip() for section in sections)
+
 
 def _is_kinship_or_role(name: str) -> bool:
     """Check if a name is actually a kinship term or role descriptor."""
@@ -207,10 +226,10 @@ def learner_node(state: TranslationState) -> dict:
     )
 
     learn_user_prompt = f"""=== SOURCE TEXT ({language}) ===
-{source_text[:4000]}
+{_sample_across_text(source_text)}
 
 === {target_name.upper()} TRANSLATION ===
-{full_translation[:4000]}"""
+{_sample_across_text(full_translation)}"""
 
     new_terms = {}
     new_characters = {}

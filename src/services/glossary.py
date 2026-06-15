@@ -26,15 +26,16 @@ or glossary.{target}.json as a fallback source. If found in share dir, copies
 to project glossary.
 
 Character schema:
-- entities: dict of original_name -> {translated_name, role, pronoun}
+- entities: dict of original_name -> {translated_name, role, pronoun, aliases?}
   role: protagonist | antagonist | supporting | minor
   pronoun: target-language pronoun/reference style assigned on first appearance (immutable)
+  aliases: source-language short/full-name variants resolved to the canonical entity
 - edges: list of [from_orig, to_orig, relationship_type, since_chapter]
   Each relationship stored ONCE (no bidirectional duplication).
   Relationship types: mother, father, sibling, friend, enemy, master,
   disciple, rival, classmate, teacher, romantic interest, etc.
 - address_rules: list of {speaker, listener, self, other, since, until?, notes?}
-  Per-pair direct address/reference rules in the target language.
+  Non-overlapping per-pair direct address/reference timelines in the target language.
 """
 
 import fcntl

@@ -73,6 +73,18 @@ def test_validate_glossary_data_reports_bad_shapes():
     assert "chapter summary 'one' must be a string" in issues
 
 
+def test_validate_glossary_data_reports_bad_character_aliases():
+    issues = validate_glossary_data({
+        "entities": {
+            "李明": {"translated_name": "Lý Minh", "aliases": ["", 123]},
+            "张伟": {"translated_name": "Trương Vĩ", "aliases": "伟"},
+        },
+    })
+
+    assert "entity '李明'.aliases contains an empty or non-string alias" in issues
+    assert "entity '张伟'.aliases must be a list" in issues
+
+
 def test_audit_term_usage_reports_missing_translation_and_source_leak():
     issues = audit_term_usage(
         {"李明": "Lý Minh", "张伟": "Trương Vĩ"},
@@ -212,6 +224,111 @@ def test_select_active_address_rules_filters_by_pair_and_chapter():
 
     assert select_active_address_rules(rules, active_entities, current_chapter=2) == [rules[0]]
     assert select_active_address_rules(rules, active_entities, current_chapter=5) == [rules[1]]
+
+
+def test_normalize_address_rules_builds_non_overlapping_pair_timeline():
+    entities = {
+        "李明": {"translated_name": "Lý Minh"},
+        "张伟": {"translated_name": "Trương Vĩ"},
+    }
+    rules = [
+        {"speaker": "李明", "listener": "张伟", "self": "tôi", "other": "cậu", "since": 1},
+        {"speaker": "李明", "listener": "张伟", "self": "tôi", "other": "cậu", "since": 2},
+        {"speaker": "李明", "listener": "张伟", "self": "tao", "other": "mày", "since": 5},
+    ]
+
+    assert normalize_address_rules(rules, entities) == [
+        {
+            "speaker": "李明",
+            "listener": "张伟",
+            "self": "tôi",
+            "other": "cậu",
+            "since": 1,
+            "until": 4,
+        },
+        {"speaker": "李明", "listener": "张伟", "self": "tao", "other": "mày", "since": 5},
+    ]
+
+
+def test_normalize_address_rules_drops_names_and_one_off_insults():
+    entities = {
+        "李明": {"translated_name": "Lý Minh"},
+        "张伟": {"translated_name": "Trương Vĩ"},
+        "王芳": {"translated_name": "Vương Phương"},
+    }
+    rules = [
+        {"speaker": "李明", "listener": "张伟", "self": "tôi", "other": "Vĩ", "since": 1},
+        {"speaker": "李明", "listener": "张伟", "self": "tôi", "other": "đồ ngốc", "since": 2},
+        {"speaker": "李明", "listener": "张伟", "self": "tôi", "other": "Phương", "since": 3},
+        {"speaker": "李明", "listener": "张伟", "self": "tôi", "other": "cậu", "since": 4},
+    ]
+
+    assert normalize_address_rules(rules, entities) == [
+        {"speaker": "李明", "listener": "张伟", "self": "tôi", "other": "cậu", "since": 4},
+    ]
+
+
+def test_normalize_address_rules_keeps_common_references_that_prefix_entity_names():
+    entities = {
+        "陆远秋": {"translated_name": "Lục Viễn Thu"},
+        "白清夏": {"translated_name": "Bạch Thanh Hạ"},
+        "强哥": {"translated_name": "anh Cường"},
+        "梁先生": {"translated_name": "ông Lương"},
+        "丽姐": {"translated_name": "chị Lệ"},
+        "刘老师": {"translated_name": "Cô Lưu"},
+        "白颂哲": {"translated_name": "Bác Bạch"},
+        "陆城": {"translated_name": "Bác cả"},
+    }
+    rules = [
+        {"speaker": "白清夏", "listener": "陆远秋", "self": "em", "other": "anh", "since": 1},
+        {"speaker": "陆远秋", "listener": "梁先生", "self": "cháu", "other": "ông", "since": 2},
+        {"speaker": "陆远秋", "listener": "丽姐", "self": "em", "other": "chị", "since": 3},
+        {"speaker": "白清夏", "listener": "刘老师", "self": "em", "other": "cô", "since": 4},
+        {"speaker": "陆远秋", "listener": "白颂哲", "self": "cháu", "other": "bác Bạch", "since": 5},
+        {"speaker": "陆远秋", "listener": "陆城", "self": "con", "other": "bác cả", "since": 6},
+    ]
+
+    assert normalize_address_rules(rules, entities) == rules
+
+
+def test_normalize_glossary_merges_clear_short_full_name_aliases():
+    data = {
+        "entities": {
+            "아테나": {"translated_name": "Athena", "role": "minor", "pronoun": "cô ấy"},
+            "아테나 바바라": {
+                "translated_name": "Athena Barbara",
+                "role": "supporting",
+                "pronoun": "cô ấy",
+            },
+            "금태양": {"translated_name": "Kim Tae Yang", "role": "protagonist"},
+        },
+        "edges": [["아테나", "금태양", "friend", 1]],
+        "address_rules": [
+            {"speaker": "아테나", "listener": "금태양", "self": "em", "other": "anh", "since": 1},
+        ],
+    }
+
+    result = normalize_glossary_data(data)
+
+    assert "아테나" not in result["entities"]
+    assert result["entities"]["아테나 바바라"]["aliases"] == ["아테나"]
+    assert result["edges"] == [["아테나 바바라", "금태양", "friend", 1]]
+    assert result["address_rules"][0]["speaker"] == "아테나 바바라"
+
+
+def test_character_alias_activates_canonical_entity():
+    entities = {
+        "아테나 바바라": {
+            "translated_name": "Athena Barbara",
+            "aliases": ["아테나"],
+        },
+        "금태양": {"translated_name": "Kim Tae Yang"},
+    }
+    edges = [["아테나 바바라", "금태양", "friend", 1]]
+
+    active_entities, _ = select_active_character_context(entities, edges, "아테나가 웃었다.")
+
+    assert set(active_entities) == {"아테나 바바라", "금태양"}
 
 
 def test_upsert_relationship_updates_reverse_pair():

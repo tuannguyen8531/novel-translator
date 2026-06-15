@@ -255,11 +255,11 @@ detect → context → chunk → translate → review → [retry loop] → accep
 | Node | Purpose |
 |------|---------|
 | `detect` | Unicode heuristic → LLM fallback for language detection |
-| `context` | Load rules, glossary, last 3 chapter summaries, active characters with relationships and address rules |
+| `context` | Load rules, glossary, last 3 chapter summaries, canonical character aliases, and the latest active address rule per pair |
 | `chunk` | Split text by paragraphs/sentences with overlap |
 | `translate` | LLM translation with rules + glossary + context |
 | `review` | LLM scores translation (0-1), applies deterministic quality checks, retries if below threshold |
-| `learn` | Extract new terms, character memory, chapter summary, save to glossary |
+| `learn` | Sample the full chapter, extract terms and stable address-rule transitions, then save character memory and summary |
 
 ## Project Structure
 

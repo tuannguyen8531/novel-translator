@@ -6,6 +6,7 @@ from src.graph.nodes.learner import (
     _is_kinship_or_role,
     _is_english,
     _normalize_relationship,
+    _sample_across_text,
 )
 
 
@@ -109,3 +110,14 @@ class TestNormalizeRelationship:
     def test_case_normalization(self):
         assert _normalize_relationship("Friend") == "friend"
         assert _normalize_relationship("MOTHER") == "mother"
+
+
+def test_sample_across_text_covers_beginning_middle_and_end():
+    text = "A" * 4000 + "MIDDLE" + "B" * 4000 + "ENDING"
+
+    sample = _sample_across_text(text, max_chars=300)
+
+    assert sample.startswith("A")
+    assert "MIDDLE" in sample
+    assert sample.endswith("ENDING")
+    assert len(sample) <= 300

@@ -50,19 +50,90 @@ def get_character_translated_name(info: dict) -> str:
 
 def normalize_character_info(info: dict) -> dict:
     """Normalize a character entity to the current glossary schema."""
+    aliases = info.get("aliases", [])
+    if not isinstance(aliases, list):
+        aliases = []
     normalized = {
         "translated_name": get_character_translated_name(info),
         "role": info.get("role", "unknown"),
         "pronoun": info.get("pronoun", ""),
     }
+    normalized_aliases = list(dict.fromkeys(
+        alias.strip() for alias in aliases if isinstance(alias, str) and alias.strip()
+    ))
+    if normalized_aliases:
+        normalized["aliases"] = normalized_aliases
     return normalized
+
+
+def _name_tokens(name: str) -> list[str]:
+    return [token.casefold() for token in re.split(r"[\s._-]+", name.strip()) if token]
+
+
+def _is_expanded_name(short_name: str, long_name: str) -> bool:
+    """Return whether long_name is a clear token-level expansion of short_name."""
+    short_tokens = _name_tokens(short_name)
+    long_tokens = _name_tokens(long_name)
+    if not short_tokens or len(short_tokens) >= len(long_tokens):
+        return False
+    size = len(short_tokens)
+    return short_tokens == long_tokens[:size] or short_tokens == long_tokens[-size:]
+
+
+def normalize_character_entities(raw_entities: dict) -> dict:
+    """Normalize entities and merge conservative short/full-name aliases."""
+    if not isinstance(raw_entities, dict):
+        return {}
+
+    entities = {
+        name: normalize_character_info(info)
+        for name, info in raw_entities.items()
+        if isinstance(name, str) and name.strip() and isinstance(info, dict)
+    }
+    names = list(entities)
+    alias_to_canonical: dict[str, str] = {}
+
+    for short_name in names:
+        short_translation = get_character_translated_name(entities[short_name])
+        if not short_translation:
+            continue
+        candidates = []
+        for long_name in names:
+            if short_name == long_name:
+                continue
+            long_translation = get_character_translated_name(entities[long_name])
+            if (
+                _is_expanded_name(short_name, long_name)
+                and _is_expanded_name(short_translation, long_translation)
+            ):
+                candidates.append(long_name)
+        if len(candidates) == 1:
+            alias_to_canonical[short_name] = candidates[0]
+
+    for alias, canonical in alias_to_canonical.items():
+        if alias not in entities or canonical not in entities:
+            continue
+        alias_info = entities.pop(alias)
+        canonical_info = entities[canonical]
+        aliases = canonical_info.setdefault("aliases", [])
+        aliases.extend([alias, *alias_info.get("aliases", [])])
+        canonical_info["aliases"] = list(dict.fromkeys(aliases))
+        if canonical_info.get("role") in ("", "unknown", "minor"):
+            alias_role = alias_info.get("role", "")
+            if alias_role and alias_role != "unknown":
+                canonical_info["role"] = alias_role
+        if not canonical_info.get("pronoun"):
+            canonical_info["pronoun"] = alias_info.get("pronoun", "")
+
+    return entities
 
 
 def _build_character_alias_map(entities: dict) -> dict[str, str | None]:
     """Map original and translated character names to canonical original keys."""
     aliases: dict[str, str | None] = {}
     for original, info in entities.items():
-        for alias in (original, get_character_translated_name(info)):
+        entity_aliases = info.get("aliases", []) if isinstance(info, dict) else []
+        for alias in (original, get_character_translated_name(info), *entity_aliases):
             if not alias:
                 continue
             if alias in aliases and aliases[alias] != original:
@@ -179,38 +250,131 @@ def normalize_address_rule(rule: dict, entities: dict, chapter: int = 0) -> dict
     return normalized
 
 
+_TRANSIENT_ADDRESS_PREFIXES = (
+    "đồ ",
+    "cái đồ ",
+    "tên ",
+    "thằng ",
+    "con nhỏ ",
+    "con bé ",
+    "đồ chết tiệt",
+)
+
+_COMMON_ADDRESS_REFERENCES = {
+    "anh",
+    "bà",
+    "bác",
+    "bạn",
+    "bệ hạ",
+    "bố",
+    "cậu",
+    "cha",
+    "chị",
+    "chú",
+    "cô",
+    "con",
+    "dì",
+    "em",
+    "huynh",
+    "mẹ",
+    "mày",
+    "nàng",
+    "ngài",
+    "ngươi",
+    "ông",
+    "sư phụ",
+    "ta",
+    "tao",
+    "thiếp",
+    "thầy",
+    "tớ",
+    "tôi",
+}
+
+
+def _is_transient_address_rule(rule: dict, entities: dict) -> bool:
+    """Reject names and obvious one-off insults from persistent address memory."""
+    entity_names: list[tuple[str, str]] = []
+    for original, info in entities.items():
+        if not isinstance(info, dict):
+            continue
+        entity_names.append((original.casefold(), original))
+        translated = get_character_translated_name(info)
+        if translated:
+            entity_names.append((translated.casefold(), original))
+        for alias in info.get("aliases", []):
+            if isinstance(alias, str) and alias.strip():
+                entity_names.append((alias.strip().casefold(), original))
+
+    other = str(rule.get("other", "")).strip().casefold()
+    if other and other not in _COMMON_ADDRESS_REFERENCES:
+        has_address_prefix = any(
+            other.startswith(f"{reference} ")
+            for reference in _COMMON_ADDRESS_REFERENCES
+        )
+        matched_entities = {
+            original
+            for name, original in entity_names
+            if name and (other == name or _is_expanded_name(other, name))
+        }
+        if matched_entities and not has_address_prefix:
+            return True
+    return any(other.startswith(prefix) for prefix in _TRANSIENT_ADDRESS_PREFIXES)
+
+
 def normalize_address_rules(rules: list, entities: dict, chapter: int = 0) -> list[dict]:
-    """Resolve address rules, drop invalid entries, and merge duplicate timelines."""
+    """Resolve address rules and build one non-overlapping timeline per pair."""
     if not isinstance(rules, list):
         return []
 
-    normalized: list[dict] = []
-    seen: dict[tuple, int] = {}
-    for rule in rules:
+    candidates: list[tuple[int, dict]] = []
+    for order, rule in enumerate(rules):
         item = normalize_address_rule(rule, entities, chapter=chapter)
-        if not item:
+        if not item or _is_transient_address_rule(item, entities):
             continue
-        key = (item["speaker"], item["listener"], item.get("since", 0), item.get("until"))
-        if key not in seen:
-            seen[key] = len(normalized)
-            normalized.append(item)
+        candidates.append((order, item))
+
+    candidates.sort(key=lambda entry: (entry[1].get("since", 0), entry[0]))
+    timelines: dict[tuple[str, str], list[dict]] = {}
+    for _, item in candidates:
+        pair = (item["speaker"], item["listener"])
+        timeline = timelines.setdefault(pair, [])
+        if not timeline:
+            timeline.append(item)
             continue
 
-        existing = normalized[seen[key]]
-        for field in ("self", "other", "notes"):
-            if item.get(field):
-                existing[field] = item[field]
+        previous = timeline[-1]
+        same_form = (
+            previous.get("self", "") == item.get("self", "")
+            and previous.get("other", "") == item.get("other", "")
+        )
+        continuous = previous.get("until") is None or previous["until"] >= item["since"] - 1
+        if same_form and continuous:
+            if item.get("notes"):
+                previous["notes"] = item["notes"]
+            if "until" in item:
+                previous["until"] = item["until"]
+            continue
 
-    return normalized
+        if item["since"] == previous["since"]:
+            for field in ("self", "other", "notes"):
+                if not item.get(field) and previous.get(field):
+                    item[field] = previous[field]
+            timeline[-1] = item
+            continue
+
+        previous["until"] = min(
+            previous.get("until", item["since"] - 1),
+            item["since"] - 1,
+        )
+        timeline.append(item)
+
+    return [rule for timeline in timelines.values() for rule in timeline]
 
 
 def normalize_glossary_data(data: dict) -> dict:
     """Normalize persisted glossary memory into the current schema."""
-    entities = {
-        name: normalize_character_info(info)
-        for name, info in data.get("entities", {}).items()
-        if isinstance(name, str) and isinstance(info, dict)
-    }
+    entities = normalize_character_entities(data.get("entities", {}))
     normalized = {
         **data,
         "entities": entities,
@@ -268,6 +432,15 @@ def validate_glossary_data(data: dict) -> list[str]:
             for key in ("translated_name", "name_vi", "role", "pronoun"):
                 if key in info and not isinstance(info[key], str):
                     issues.append(f"entity {original!r}.{key} must be a string")
+            aliases = info.get("aliases")
+            if aliases is not None and not isinstance(aliases, list):
+                issues.append(f"entity {original!r}.aliases must be a list")
+            elif isinstance(aliases, list):
+                for alias in aliases:
+                    if not isinstance(alias, str) or not alias.strip():
+                        issues.append(
+                            f"entity {original!r}.aliases contains an empty or non-string alias"
+                        )
 
     edges = data.get("edges", [])
     if edges is not None and not isinstance(edges, list):
@@ -392,6 +565,8 @@ def _is_name_boundary(text: str, pos: int) -> bool:
 
 def find_name_in_text(name: str, source_text: str) -> bool:
     """Check if name appears in text with proper boundaries."""
+    if CJK_RE.search(name):
+        return name in source_text
     escaped = re.escape(name)
     for match in re.finditer(escaped, source_text):
         if _is_name_boundary(source_text, match.start() - 1) and _is_name_boundary(source_text, match.end()):
@@ -408,7 +583,12 @@ def select_active_character_context(all_entities: dict, all_edges: list, source_
     all_entities = normalized["entities"]
     all_edges = normalized["edges"]
 
-    active_names = {name for name in all_entities if find_name_in_text(name, source_text)}
+    active_names = {
+        name
+        for name, info in all_entities.items()
+        if find_name_in_text(name, source_text)
+        or any(find_name_in_text(alias, source_text) for alias in info.get("aliases", []))
+    }
 
     if not active_names:
         return {}, []
@@ -440,7 +620,7 @@ def select_active_address_rules(address_rules: list, active_entities: dict, curr
         return []
 
     active_names = set(active_entities)
-    selected = []
+    selected_by_pair: dict[tuple[str, str], dict] = {}
     for rule in address_rules:
         if rule.get("speaker") not in active_names or rule.get("listener") not in active_names:
             continue
@@ -451,8 +631,11 @@ def select_active_address_rules(address_rules: list, active_entities: dict, curr
                 continue
             if isinstance(until, int) and until < current_chapter:
                 continue
-        selected.append(rule)
-    return selected
+        pair = (rule["speaker"], rule["listener"])
+        existing = selected_by_pair.get(pair)
+        if not existing or rule.get("since", 0) >= existing.get("since", 0):
+            selected_by_pair[pair] = rule
+    return list(selected_by_pair.values())
 
 
 def merge_character_context(
@@ -488,6 +671,7 @@ def merge_character_context(
             since = edge[3] if len(edge) > 3 else chapter
             tagged_edges.append([edge[0], edge[1], edge[2], since])
 
+    existing_entities = normalize_character_entities(existing_entities)
     existing_edges = normalize_character_edges(data.get("edges", []) + tagged_edges, existing_entities)
     existing_address_rules = normalize_address_rules(
         data.get("address_rules", []) + (address_rules or []),
