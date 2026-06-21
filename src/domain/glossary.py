@@ -75,9 +75,20 @@ def _is_expanded_name(short_name: str, long_name: str) -> bool:
     short_tokens = _name_tokens(short_name)
     long_tokens = _name_tokens(long_name)
     if not short_tokens or len(short_tokens) >= len(long_tokens):
-        return False
+        if len(short_name) < 2 or len(short_name) >= len(long_name):
+            return False
+        return long_name.endswith(short_name)
     size = len(short_tokens)
     return short_tokens == long_tokens[:size] or short_tokens == long_tokens[-size:]
+
+
+def _is_same_rendered_name_alias(short_name: str, long_name: str, short_translation: str, long_translation: str) -> bool:
+    """Return whether two source variants render to the same target name."""
+    if not short_translation or short_translation != long_translation:
+        return False
+    if len(short_name) < 2 or len(short_name) >= len(long_name):
+        return False
+    return short_name[0] == long_name[0]
 
 
 def normalize_character_entities(raw_entities: dict) -> dict:
@@ -105,6 +116,11 @@ def normalize_character_entities(raw_entities: dict) -> dict:
             if (
                 _is_expanded_name(short_name, long_name)
                 and _is_expanded_name(short_translation, long_translation)
+            ) or _is_same_rendered_name_alias(
+                short_name,
+                long_name,
+                short_translation,
+                long_translation,
             ):
                 candidates.append(long_name)
         if len(candidates) == 1:

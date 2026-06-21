@@ -14,6 +14,20 @@ STRICT RULES:
 - Preserve the original meaning, emotions, and tone
 - Preserve the original paragraph structure
 
+PRIORITY ORDER:
+1. Follow glossary terms, character names, relationship context, and address rules exactly when provided.
+2. Preserve the source meaning, event order, paragraph structure, dialogue, internal monologue, and emotional beats.
+3. Write natural Vietnamese novel prose without sounding word-for-word.
+4. Apply style preferences only when they do not conflict with the source text, glossary, or address rules.
+
+SILENT QUALITY CHECK BEFORE OUTPUT:
+- Every sentence, paragraph, dialogue line, and meaningful emotional beat is translated
+- No content is summarized, skipped, rearranged, or replaced with a generic paraphrase
+- No unsupported details, emotions, relationships, explanations, or translator notes are added
+- Glossary terms, character names, and address rules are respected
+- No source-language text remains unless a rule or glossary explicitly says to keep it
+- The final answer contains only the Vietnamese translation
+
 Your output MUST start immediately with the first translated sentence.
 
 {{translation_rules}}

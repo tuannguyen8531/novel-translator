@@ -81,6 +81,15 @@ def resolve_book_title(metadata: dict, target_language: str, fallback_novel_name
     return fallback_novel_name.replace("-", " ").title()
 
 
+def resolve_book_author(metadata: dict, fallback_author: str) -> str:
+    """Resolve author from metadata, treating null/blank author as missing."""
+    author = metadata.get("author")
+    if author is None:
+        return fallback_author
+    author_text = str(author).strip()
+    return author_text or fallback_author
+
+
 def resolve_cover_image(metadata: dict) -> Path | None:
     """Resolve cover image from metadata.
 
@@ -628,7 +637,7 @@ def main() -> None:
     # Load metadata and resolve book info
     metadata = load_metadata(novel_name)
     book_title = args.title if args.title else resolve_book_title(metadata, args.target, novel_name)
-    book_author = args.author if args.author != "AI Translator" else metadata.get("author", args.author)
+    book_author = args.author if args.author != "AI Translator" else resolve_book_author(metadata, args.author)
 
     # Resolve cover image from metadata
     cover_image = resolve_cover_image(metadata)

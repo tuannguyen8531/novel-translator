@@ -10,6 +10,7 @@ from pack import (
     _get_output_dir,
     _package_file_stem,
     load_metadata,
+    resolve_book_author,
     resolve_book_title,
     resolve_cover_image,
 )
@@ -134,6 +135,19 @@ def test_resolve_title_falls_back_to_novel_name():
 def test_resolve_title_skips_empty_translated():
     metadata = {"title": "原标题", "translated": {"en": ""}}
     assert resolve_book_title(metadata, "en", "fallback") == "原标题"
+
+
+# --- resolve_book_author ---
+
+
+def test_resolve_author_uses_metadata_author():
+    assert resolve_book_author({"author": "Real Author"}, "AI Translator") == "Real Author"
+
+
+def test_resolve_author_falls_back_when_missing_or_empty():
+    assert resolve_book_author({}, "AI Translator") == "AI Translator"
+    assert resolve_book_author({"author": None}, "AI Translator") == "AI Translator"
+    assert resolve_book_author({"author": ""}, "AI Translator") == "AI Translator"
 
 
 # --- resolve_cover_image ---

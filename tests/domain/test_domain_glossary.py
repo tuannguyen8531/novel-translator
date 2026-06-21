@@ -316,6 +316,62 @@ def test_normalize_glossary_merges_clear_short_full_name_aliases():
     assert result["address_rules"][0]["speaker"] == "아테나 바바라"
 
 
+def test_normalize_glossary_merges_cjk_short_full_name_aliases():
+    data = {
+        "entities": {
+            "若安": {"translated_name": "Nhược An", "role": "minor", "pronoun": "anh"},
+            "白若安": {"translated_name": "Bạch Nhược An", "role": "supporting", "pronoun": ""},
+            "陆": {"translated_name": "Lục", "role": "minor", "pronoun": "anh"},
+            "陆远秋": {"translated_name": "Lục Viễn Thu", "role": "protagonist", "pronoun": "cậu"},
+        },
+        "edges": [["若安", "陆远秋", "friend", 1]],
+    }
+
+    result = normalize_glossary_data(data)
+
+    assert "若安" not in result["entities"]
+    assert result["entities"]["白若安"]["aliases"] == ["若安"]
+    assert "陆" in result["entities"]
+    assert result["edges"] == [["白若安", "陆远秋", "friend", 1]]
+
+
+def test_normalize_glossary_does_not_merge_cjk_prefix_names():
+    data = {
+        "entities": {
+            "小李": {"translated_name": "Tiểu Lý", "role": "supporting", "pronoun": "anh"},
+            "小李飞镖": {"translated_name": "Tiểu Lý Phi Tiêu", "role": "supporting", "pronoun": "anh"},
+        },
+    }
+
+    result = normalize_glossary_data(data)
+
+    assert set(result["entities"]) == {"小李", "小李飞镖"}
+    assert "aliases" not in result["entities"]["小李飞镖"]
+
+
+def test_normalize_glossary_merges_same_rendered_title_aliases():
+    data = {
+        "entities": {
+            "张姨": {"translated_name": "dì Trương", "role": "minor", "pronoun": "bà"},
+            "张阿姨": {"translated_name": "dì Trương", "role": "minor", "pronoun": "bà"},
+            "刘妈": {"translated_name": "dì Lưu", "role": "minor", "pronoun": "bà"},
+            "刘阿姨": {"translated_name": "dì Lưu", "role": "minor", "pronoun": "bà"},
+        },
+        "address_rules": [
+            {"speaker": "张姨", "listener": "刘妈", "self": "dì", "other": "em", "since": 1},
+        ],
+    }
+
+    result = normalize_glossary_data(data)
+
+    assert "张姨" not in result["entities"]
+    assert result["entities"]["张阿姨"]["aliases"] == ["张姨"]
+    assert "刘妈" not in result["entities"]
+    assert result["entities"]["刘阿姨"]["aliases"] == ["刘妈"]
+    assert result["address_rules"][0]["speaker"] == "张阿姨"
+    assert result["address_rules"][0]["listener"] == "刘阿姨"
+
+
 def test_character_alias_activates_canonical_entity():
     entities = {
         "아테나 바바라": {

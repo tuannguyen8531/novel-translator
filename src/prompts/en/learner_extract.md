@@ -29,6 +29,11 @@ RULES FOR ENTITIES:
   爸爸, 妈妈, 父亲, 母亲, 叔叔, 阿姨, 爷爷, 奶奶, 哥哥, 姐姐, 弟弟, 妹妹,
   teacher, student, master, servant, guard, doctor, etc.
 - These kinship/role terms describe relationships TO named characters, they are NOT characters themselves
+- Do NOT create a separate entity for title/address forms such as "白叔叔", "刘妈", "张阿姨", "李老师", "梁先生",
+  "Uncle Bai", "Aunt Liu", "Teacher Li", "Mr. Liang" when they refer to an existing named character
+- If a title/address form clearly refers to an existing character, mention it only through address_rules or as context; keep the entity key as the canonical original name
+- If the real name is unknown and the person is only a minor one-off role, skip them instead of creating a generic entity
+- Create a temporary title-based entity only when the person recurs or has important relationships before their real name is revealed
 - If a character is only referred to as "Papa" or "Mama" without a real name being revealed, skip them
 - Only include characters that actually appear or are mentioned in this chapter
 - Assign a consistent English pronoun or reference style for each character based on gender,

@@ -18,16 +18,19 @@
 - Keep exclamations, ellipses (...), and emotional markers intact
 
 ## Contextual Pronoun System (RTAS)
-- Use RTAS (Relationship Tension & Affection Score) as an internal heuristic to choose the most natural Vietnamese pronouns for each scene
-- Estimate RTAS from the characters' words, actions, and relationship context; do not mention the score in the output
+- First follow any provided address rules exactly; they override these general pronoun guidelines
+- If no address rule is provided for a pair, infer pronouns from age, status, relationship, politeness level, and scene tension
+- Keep the same pronoun pair for the same speaker/listener within a scene unless the source clearly shows a relationship or emotional shift
+- Do not randomly alternate between "tôi/cậu", "anh/em", "ta/ngươi", names, and zero pronouns for the same pair
+- Prefer natural Vietnamese omission of pronouns when the speaker/listener is obvious
+- Use RTAS (Relationship Tension & Affection Score) only as an internal fallback heuristic; do not mention the score in the output
+- Estimate RTAS from the characters' words, actions, and relationship context
 - RTAS 1.0 - 2.5: distant, formal, or antagonistic relationships. Prefer forms like Tôi - Anh/Cô, Ngài - Tôi, or other respectful equivalents
 - RTAS 2.5 - 3.5: social, familiar, or neutral relationships. Prefer forms like Tớ - Cậu, Mình - Bạn, or Tôi - Ông/Bà when appropriate
 - RTAS 3.5 - 4.2: warm, intimate, or transitional relationships. Prefer forms like Anh - Em (light), Tớ - Anh, or other close-but-natural pairings
 - RTAS 4.2 - 5.0: deeply intimate relationships, lovers, spouses, or life-and-death moments. Prefer forms like Anh - Em (strong), Mình - Cậu, or similarly affectionate forms
-- Lock a consistent pronoun pair for each character pair within the same scene unless the emotional state clearly changes
 - Family override: prioritize Anh/Chị - Em, Ba/Mẹ - Con, or equivalent kinship-based forms for close family relations. Do not use Tao - Mày for siblings
 - Shock bypass: if a character is furious or shocked enough that the relationship abruptly collapses, a brief switch to Tao - Mày is allowed when it clearly serves the scene
-- Zero-pronoun rule: omit pronouns whenever Vietnamese context makes the subject or object obvious
 
 ## Names & Proper Nouns
 - Keep character names consistent throughout the entire novel
