@@ -1,10 +1,10 @@
 """
 AI Call Logger — Logs every LLM invocation with full request/response details.
 
-Two log files:
-- logs/translation.log      — Summary (1 line per call, compact JSON)
-- logs/llm_api.log  — API-level JSON log (actual HTTP request/response)
-- logs/error.log    — Error log (structured error messages with stack traces)
+Three log files:
+- logs/request.log   — API request JSON lines
+- logs/response.log  — API response JSON lines
+- logs/error.log     — Error log (structured error messages with stack traces)
 """
 
 import json
@@ -14,8 +14,8 @@ from pathlib import Path
 from uuid import uuid4
 
 LOG_DIR = Path("logs")
-LOG_FILE = LOG_DIR / "translation.log"
-LOG_API_FILE = LOG_DIR / "llm_api.log"
+LOG_REQUEST_FILE = LOG_DIR / "request.log"
+LOG_RESPONSE_FILE = LOG_DIR / "response.log"
 LOG_ERROR_FILE = LOG_DIR / "error.log"
 
 _verbose = False
@@ -60,7 +60,7 @@ def log_api_request_sent(
         "request": safe_body,
         **kwargs,
     }
-    with open(LOG_API_FILE, "a", encoding="utf-8") as f:
+    with open(LOG_REQUEST_FILE, "a", encoding="utf-8") as f:
         f.write(f"{timestamp} {json.dumps(entry, ensure_ascii=False)}\n")
 
     return call_id
@@ -93,7 +93,7 @@ def log_api_request_received(
         "response": safe_response,
         **kwargs,
     }
-    with open(LOG_API_FILE, "a", encoding="utf-8") as f:
+    with open(LOG_RESPONSE_FILE, "a", encoding="utf-8") as f:
         f.write(f"{timestamp} {json.dumps(entry, ensure_ascii=False)}\n")
 
 
@@ -144,45 +144,33 @@ def log_ai_call(
     **kwargs,
 ):
     """
-    Log an AI call to both summary and API log files.
+    Print an AI call to console when verbose mode is enabled.
 
     Args:
         call_type: Type of call (e.g., "translate", "review", "learn_terms", "learn_summary")
         system_prompt: The full system prompt sent to the LLM
         user_prompt: The full user prompt sent to the LLM
         response: The full response from the LLM
-        **kwargs: Additional metadata fields to log
+        **kwargs: Additional metadata fields for verbose labels
     """
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    if not _verbose:
+        return
+
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    label = call_type.upper()
+    if "chunk_index" in kwargs:
+        total = kwargs.get("total_chunks", "?")
+        label += f" (chunk {kwargs['chunk_index'] + 1}/{total})"
+    elif "chapter" in kwargs:
+        label += f" (chapter {kwargs['chapter']})"
 
-    # --- Summary log (compact, 1 line per call) ---
-    summary_entry = {
-        "type": call_type,
-        "system_prompt_len": len(system_prompt),
-        "user_prompt_len": len(user_prompt),
-        "response_len": len(response),
-        **kwargs,
-    }
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(f"{timestamp} {json.dumps(summary_entry, ensure_ascii=False)}\n")
-
-    # --- Console output (verbose mode only) ---
-    if _verbose:
-        label = call_type.upper()
-        if "chunk_index" in kwargs:
-            total = kwargs.get("total_chunks", "?")
-            label += f" (chunk {kwargs['chunk_index'] + 1}/{total})"
-        elif "chapter" in kwargs:
-            label += f" (chapter {kwargs['chapter']})"
-
-        print(f"\n{'═' * 60}")
-        print(f"[{timestamp}] {label}")
-        print(f"{'═' * 60}")
-        print(f"--- SYSTEM ({len(system_prompt)} chars) ---")
-        print(_truncate(system_prompt))
-        print(f"--- USER ({len(user_prompt)} chars) ---")
-        print(_truncate(user_prompt))
-        print(f"--- RESPONSE ({len(response)} chars) ---")
-        print(_truncate(response))
-        print(f"{'═' * 60}\n")
+    print(f"\n{'═' * 60}")
+    print(f"[{timestamp}] {label}")
+    print(f"{'═' * 60}")
+    print(f"--- SYSTEM ({len(system_prompt)} chars) ---")
+    print(_truncate(system_prompt))
+    print(f"--- USER ({len(user_prompt)} chars) ---")
+    print(_truncate(user_prompt))
+    print(f"--- RESPONSE ({len(response)} chars) ---")
+    print(_truncate(response))
+    print(f"{'═' * 60}\n")

@@ -403,8 +403,8 @@ def get_active_context(novel_name: str, source_text: str, chapter_number: int = 
 
     Algorithm:
         1. Scan source_text for known character names (active set) using boundary-aware matching.
-        2. Collect edges where at least one endpoint is in the active set (F1 neighbors).
-        3. Build entity dict for active + F1 characters.
+        2. Collect only pair edges where both endpoints are in the active set.
+        3. Build entity dict for directly active characters.
 
     Returns:
         (entities, edges, address_rules) — filtered to active context only.

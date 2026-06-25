@@ -47,4 +47,4 @@ def render_prompt(template_name: str, target_language: str | None = None, **vari
     for key, value in variables.items():
         content = content.replace("{{" + key + "}}", value)
 
-    return content
+    return content.strip()

@@ -17,6 +17,7 @@ class TestRenderPrompt:
         assert "Chinese" in result
         assert "Vietnamese" in result
         assert "{{lang_name}}" not in result
+        assert result == result.strip()
 
     def test_render_with_multiple_variables(self):
         result = render_prompt(

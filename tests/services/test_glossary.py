@@ -150,6 +150,37 @@ class TestGlossary:
             {"speaker": "李白", "listener": "杜甫", "self": "ta", "other": "huynh", "since": 2}
         ]
 
+    def test_active_context_does_not_load_address_rules_for_absent_neighbors(self):
+        save_characters_batch(
+            "test-novel",
+            {
+                "陆远秋": {"translated_name": "Lục Viễn Thu", "role": "protagonist"},
+                "白清夏": {"translated_name": "Bạch Thanh Hạ", "role": "supporting"},
+                "梁先生": {"translated_name": "ông Lương", "role": "minor"},
+            },
+            [
+                ["陆远秋", "白清夏", "friend"],
+                ["陆远秋", "梁先生", "teacher"],
+            ],
+            address_rules=[
+                {"speaker": "陆远秋", "listener": "白清夏", "self": "tôi", "other": "cậu", "since": 1},
+                {"speaker": "陆远秋", "listener": "梁先生", "self": "cháu", "other": "ông", "since": 1},
+            ],
+            chapter=1,
+        )
+
+        entities, edges, address_rules = get_active_context(
+            "test-novel",
+            "陆远秋 gặp 白清夏.",
+            chapter_number=2,
+        )
+
+        assert set(entities) == {"陆远秋", "白清夏"}
+        assert edges == [["陆远秋", "白清夏", "friend", 1]]
+        assert address_rules == [
+            {"speaker": "陆远秋", "listener": "白清夏", "self": "tôi", "other": "cậu", "since": 1}
+        ]
+
     def test_validate_glossary(self):
         save_glossary("test-novel", {"李白": "Lý Bạch"})
 

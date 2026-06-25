@@ -590,8 +590,22 @@ def find_name_in_text(name: str, source_text: str) -> bool:
     return False
 
 
+def select_active_glossary_terms(terms: dict[str, str], source_text: str) -> dict[str, str]:
+    """Select glossary terms that appear in the current source text."""
+    if not terms or not source_text:
+        return {}
+    return {
+        original: translated
+        for original, translated in terms.items()
+        if isinstance(original, str)
+        and isinstance(translated, str)
+        and original
+        and find_name_in_text(original, source_text)
+    }
+
+
 def select_active_character_context(all_entities: dict, all_edges: list, source_text: str) -> tuple[dict, list]:
-    """Select active characters and first-degree relationships for the current source text."""
+    """Select characters and pair relationships that directly appear in the current source text."""
     if not all_entities:
         return {}, []
 
@@ -609,21 +623,17 @@ def select_active_character_context(all_entities: dict, all_edges: list, source_
     if not active_names:
         return {}, []
 
-    f1_names: set[str] = set()
     active_edges: list = []
     for edge in all_edges:
         if len(edge) < 3:
             continue
         from_char, to_char = edge[0], edge[1]
-        if from_char in active_names or to_char in active_names:
+        if from_char in active_names and to_char in active_names:
             active_edges.append(edge)
-            f1_names.add(from_char)
-            f1_names.add(to_char)
 
-    all_relevant = active_names | f1_names
     active_entities = {
         name: all_entities[name]
-        for name in all_relevant
+        for name in active_names
         if name in all_entities
     }
 
@@ -743,29 +753,32 @@ def format_relationships_shorthand(entities: dict, edges: list) -> str:
         return ""
 
     notable_roles = {"protagonist", "antagonist", "supporting"}
+    name_parts = []
     roles_parts = []
     for name, info in entities.items():
-        translated_name = get_character_translated_name(info) or name
+        translated_name = get_character_translated_name(info)
+        if translated_name and translated_name != name:
+            name_parts.append(f"{name}={translated_name}")
         role = info.get("role", "")
         pronoun = info.get("pronoun", "")
         if role in notable_roles or pronoun:
             tag = role
             if pronoun:
                 tag += f', pronoun="{pronoun}"'
-            roles_parts.append(f"{translated_name}[{tag}]")
+            roles_parts.append(f"{name}[{tag}]")
         elif role:
-            roles_parts.append(f"{translated_name}[{role}]")
+            roles_parts.append(f"{name}[{role}]")
 
     rel_parts = []
     for edge in edges:
         if len(edge) < 3:
             continue
         from_char, to_char, rel_type = edge[0], edge[1], edge[2]
-        from_name = get_character_translated_name(entities.get(from_char, {})) or from_char
-        to_name = get_character_translated_name(entities.get(to_char, {})) or to_char
-        rel_parts.append(f"{from_name}({rel_type})->{to_name}")
+        rel_parts.append(f"{from_char}({rel_type})->{to_char}")
 
     lines = ["=== CHARACTERS ==="]
+    if name_parts:
+        lines.append("Names: " + ", ".join(name_parts))
     if roles_parts:
         lines.append("Roles: " + ", ".join(roles_parts))
     if rel_parts:
@@ -780,28 +793,17 @@ def format_address_rules(entities: dict, address_rules: list, target_language: s
     if not entities or not address_rules:
         return ""
 
-    label = "xưng hô" if target_language == "vi" else "address/reference style"
     lines = ["=== ADDRESS RULES ==="]
     for rule in address_rules:
         speaker = rule.get("speaker", "")
         listener = rule.get("listener", "")
-        speaker_name = get_character_translated_name(entities.get(speaker, {})) or speaker
-        listener_name = get_character_translated_name(entities.get(listener, {})) or listener
 
         parts = []
         if rule.get("self"):
             parts.append(f'self="{rule["self"]}"')
         if rule.get("other"):
             parts.append(f'other="{rule["other"]}"')
-        if rule.get("notes"):
-            parts.append(f'notes="{rule["notes"]}"')
-        since = rule.get("since")
-        until = rule.get("until")
-        if isinstance(since, int) and since > 0 and isinstance(until, int):
-            parts.append(f"chapters {since}-{until}")
-        elif isinstance(since, int) and since > 0:
-            parts.append(f"since chapter {since}")
 
-        lines.append(f"{speaker_name} -> {listener_name}: {label}; " + ", ".join(parts))
+        lines.append(f"{speaker} -> {listener}: " + ", ".join(parts))
     lines.append("=== END ADDRESS RULES ===")
     return "\n".join(lines)

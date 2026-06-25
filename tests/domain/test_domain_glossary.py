@@ -10,6 +10,7 @@ from src.domain.glossary import (
     normalize_glossary_data,
     select_active_address_rules,
     select_active_character_context,
+    select_active_glossary_terms,
     upsert_relationship,
     validate_glossary_data,
 )
@@ -26,6 +27,21 @@ def test_format_glossary_for_prompt():
 
 def test_format_empty_glossary():
     assert format_glossary_for_prompt({}) == ""
+
+
+def test_select_active_glossary_terms_only_keeps_terms_in_source_text():
+    terms = {
+        "玄天宗": "Huyền Thiên Tông",
+        "归墟": "Quy Khư",
+        "dao": "đạo",
+    }
+
+    result = select_active_glossary_terms(terms, "玄天宗 đệ tử dùng dao, không phải daode.")
+
+    assert result == {
+        "玄天宗": "Huyền Thiên Tông",
+        "dao": "đạo",
+    }
 
 
 def test_validate_glossary_data_accepts_current_schema():
@@ -104,7 +120,7 @@ def test_format_recent_summaries_keeps_recent_order():
     assert result == "Chapter 2: Second\n\nChapter 3: Third\n\nChapter 4: Fourth"
 
 
-def test_select_active_character_context_includes_first_degree_neighbors():
+def test_select_active_character_context_excludes_first_degree_neighbors():
     entities = {
         "李明": {"translated_name": "Lý Minh", "role": "protagonist"},
         "张伟": {"translated_name": "Trương Vĩ", "role": "supporting"},
@@ -114,8 +130,8 @@ def test_select_active_character_context_includes_first_degree_neighbors():
 
     active_entities, active_edges = select_active_character_context(entities, edges, "李明，走进房间。")
 
-    assert set(active_entities) == {"李明", "张伟"}
-    assert active_edges == [["李明", "张伟", "friend", 1]]
+    assert set(active_entities) == {"李明"}
+    assert active_edges == []
 
 
 def test_merge_character_context_keeps_first_pronoun_and_dedupes_reverse_edges():
@@ -384,7 +400,28 @@ def test_character_alias_activates_canonical_entity():
 
     active_entities, _ = select_active_character_context(entities, edges, "아테나가 웃었다.")
 
-    assert set(active_entities) == {"아테나 바바라", "금태양"}
+    assert set(active_entities) == {"아테나 바바라"}
+
+
+def test_active_character_context_excludes_non_appearing_neighbors():
+    entities = {
+        "陆远秋": {"translated_name": "Lục Viễn Thu"},
+        "白清夏": {"translated_name": "Bạch Thanh Hạ"},
+        "梁先生": {"translated_name": "ông Lương"},
+    }
+    edges = [
+        ["陆远秋", "白清夏", "friend", 1],
+        ["陆远秋", "梁先生", "teacher", 1],
+    ]
+
+    active_entities, active_edges = select_active_character_context(
+        entities,
+        edges,
+        "陆远秋 nhìn 白清夏.",
+    )
+
+    assert set(active_entities) == {"陆远秋", "白清夏"}
+    assert active_edges == [["陆远秋", "白清夏", "friend", 1]]
 
 
 def test_upsert_relationship_updates_reverse_pair():
@@ -419,8 +456,9 @@ def test_format_relationships_shorthand():
     result = format_relationships_shorthand(entities, edges)
 
     assert "=== CHARACTERS ===" in result
-    assert 'Lý Minh[protagonist, pronoun="cậu"]' in result
-    assert "Lý Minh(friend)->Trương Vĩ" in result
+    assert "Names: 李明=Lý Minh, 张伟=Trương Vĩ" in result
+    assert '李明[protagonist, pronoun="cậu"]' in result
+    assert "李明(friend)->张伟" in result
 
 
 def test_format_address_rules():
@@ -428,12 +466,26 @@ def test_format_address_rules():
         "李明": {"translated_name": "Lý Minh"},
         "张伟": {"translated_name": "Trương Vĩ"},
     }
-    rules = [{"speaker": "李明", "listener": "张伟", "self": "tôi", "other": "cậu", "since": 2}]
+    rules = [
+        {
+            "speaker": "李明",
+            "listener": "张伟",
+            "self": "tôi",
+            "other": "cậu",
+            "since": 2,
+            "notes": "formal in public",
+        }
+    ]
 
     result = format_address_rules(entities, rules, target_language="vi")
 
     assert "=== ADDRESS RULES ===" in result
-    assert 'Lý Minh -> Trương Vĩ: xưng hô; self="tôi", other="cậu", since chapter 2' in result
+    assert '李明 -> 张伟: self="tôi", other="cậu"' in result
+    assert "xưng hô;" not in result
+    assert "Lý Minh -> Trương Vĩ" not in result
+    assert "formal in public" not in result
+    assert "notes=" not in result
+    assert "since chapter" not in result
 
 
 def test_validate_glossary_data_pronoun_examples():

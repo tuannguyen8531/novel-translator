@@ -10,6 +10,7 @@ For chapter summaries, only loads the last 3 chapters for conciseness.
 
 from pathlib import Path
 
+from src.domain.glossary import select_active_glossary_terms
 from src.models.state import TranslationState
 from src.services.glossary import load_glossary, load_chapter_summaries_recent, load_source_language, get_active_context
 
@@ -24,6 +25,7 @@ def context_node(state: TranslationState) -> dict:
     target_language = state.get("target_language", "vi")
     novel_name = state["novel_name"]
     chapter_number = state["chapter_number"]
+    source_text = state.get("source_text", "")
 
     # 0. Load source language from glossary if not specified by user
     if not language:
@@ -48,8 +50,8 @@ def context_node(state: TranslationState) -> dict:
 
     rules = "\n\n".join(rules_parts)
 
-    # 2. Load glossary
-    glossary = load_glossary(novel_name)
+    # 2. Load glossary terms used in this chapter.
+    glossary = select_active_glossary_terms(load_glossary(novel_name), source_text)
 
     # 3. Load recent chapter summaries (last 3 chapters)
     previous_summary = ""
@@ -60,8 +62,7 @@ def context_node(state: TranslationState) -> dict:
         if recent_summaries:
             previous_summary = recent_summaries
 
-    # 4. Load character context — only characters active in this chapter (+F1 neighbors)
-    source_text = state.get("source_text", "")
+    # 4. Load character context — only characters directly active in this chapter.
     entities, edges, address_rules = get_active_context(novel_name, source_text, chapter_number)
     if entities:
         print(
