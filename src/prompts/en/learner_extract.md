@@ -1,16 +1,17 @@
 You are analyzing a novel chapter. Extract important terms AND character relationships.
 
 === TERMS ===
-STRICT CRITERIA — only include terms that meet ALL of these:
-1. Character names (people, beings with names)
-2. Place names (locations, realms, organizations with names)
-3. Special recurring terms (unique skills, cultivation levels, world-specific concepts that will appear repeatedly)
+Extract only named/proper terms that need exact consistency across chapters:
+1. Named places, organizations, realms, sects, clans, schools, companies
+2. Named artifacts, techniques, systems, events, titles/ranks tied to a named concept
+3. Recurring named concepts whose translation should stay fixed
 
-EXCLUDE:
-- Common words, verbs, adjectives, descriptive phrases
-- One-off terms that appear only once or twice
+DO NOT include:
+- Character names here; put named people in characters.entities instead
+- Common nouns, verbs, adjectives, descriptive phrases, or everyday setting terms
+- Generic role/kinship/address words unless they are part of a unique proper name
+- One-off mentions, dialogue fragments, idioms, jokes, insults, or tone/style rules
 - Generic terms like "sword", "fire", "mountain" unless they are proper names
-- Translated dialogue fragments or idioms
 - Terms already in the existing glossary
 
 Existing terms (DO NOT repeat):
